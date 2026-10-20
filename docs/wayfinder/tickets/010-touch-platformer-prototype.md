@@ -3,7 +3,7 @@ id: 010
 title: Прототип управления — крыса прыгает на телефоне
 type: prototype
 status: open
-assignee:
+assignee: claude
 blocked_by: [003]
 ---
 ## Вопрос

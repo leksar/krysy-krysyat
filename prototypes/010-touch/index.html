@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Прототип 010 — крыса прыгает</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0e0c0a; overflow: hidden; touch-action: none; overscroll-behavior: none; font-family: system-ui, sans-serif; color: #e8d9c0; -webkit-user-select: none; user-select: none; }
+    #game { position: fixed; inset: 0; display: block; }
+    canvas { image-rendering: pixelated; }
+    #start { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(14,12,10,.92); z-index: 20; text-align: center; font-size: 20px; line-height: 1.5; }
+    #start small { opacity: .6; font-size: 14px; }
+    #rotate { position: fixed; inset: 0; display: none; place-items: center; background: #0e0c0a; z-index: 30; font-size: 22px; }
+    @media (orientation: portrait) { #rotate { display: grid; } }
+    .btn { position: fixed; border-radius: 50%; background: rgba(232,217,192,.14); border: 2px solid rgba(232,217,192,.45); display: grid; place-items: center; font-weight: 700; z-index: 10; }
+    .btn.on { background: rgba(232,217,192,.45); }
+    #jump { width: 92px; height: 92px; font-size: 18px; }
+    #bite { width: 64px; height: 64px; font-size: 14px; }
+    #joy { position: fixed; width: 110px; height: 110px; border-radius: 50%; border: 2px solid rgba(232,217,192,.3); display: none; z-index: 10; pointer-events: none; }
+    #knob { position: absolute; width: 44px; height: 44px; left: 31px; top: 31px; border-radius: 50%; background: rgba(232,217,192,.55); }
+    #hud { position: fixed; left: 8px; top: 6px; font: 11px/1.4 ui-monospace, monospace; opacity: .75; z-index: 10; white-space: pre; pointer-events: none; }
+    #gear { position: fixed; right: 10px; top: 6px; z-index: 15; font-size: 20px; opacity: .7; }
+    #panel { position: fixed; right: 10px; top: 36px; z-index: 15; background: rgba(20,17,15,.95); border: 1px solid #555; border-radius: 8px; padding: 10px 12px; display: none; font-size: 14px; }
+    #panel.open { display: block; }
+    #panel label { display: block; margin: 4px 0; }
+    #panel button { margin: 2px; padding: 6px 10px; border-radius: 6px; border: 1px solid #777; background: #222; color: #e8d9c0; }
+    #panel button.sel { background: #e8d9c0; color: #111; }
+  </style>
+</head>
+<body>
+  <div id="rotate">📱↻ Поверни телефон горизонтально</div>
+  <div id="start">🐀<br/>Нажми, чтобы начать<br/><small>левая половина — джойстик · справа — Прыжок и Укус</small></div>
+  <canvas id="game"></canvas>
+  <div id="joy"><div id="knob"></div></div>
+  <div id="jump" class="btn">ПРЫГ</div>
+  <div id="bite" class="btn">КУС</div>
+  <div id="hud"></div>
+  <div id="gear">⚙️</div>
+  <div id="panel">
+    <div>Физика:</div>
+    <div id="presets"></div>
+    <div style="margin-top:6px">Кнопки:</div>
+    <div id="layouts"></div>
+    <label><input type="checkbox" id="coyote" checked /> coyote time</label>
+    <label><input type="checkbox" id="buffer" checked /> jump buffer</label>
+    <label><input type="checkbox" id="varjump" checked /> прыжок по длине нажатия</label>
+    <label><input type="checkbox" id="joyFixed" /> джойстик на фиксированном месте</label>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
