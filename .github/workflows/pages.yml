@@ -21,17 +21,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # Прототипы (выбрасываемые) публикуются рядом с заглушкой: /proto/<id>/
       - run: npm ci
-      - name: Build prototypes
+      # Игра — корень сайта; прототип 010 остаётся под /proto/010/ (011 заморожен, см. prototypes/011-net/README.md)
+      - name: Build client and prototype
         run: |
+          npm run build -w apps/client
           npm run build -w prototypes/010-touch
-          npm run build -w prototypes/011-net
       - name: Assemble site
         run: |
-          mkdir -p site/proto/010 site/proto/011
+          rm -rf site && mkdir -p site/proto/010
+          cp -r apps/client/dist/. site/
           cp -r prototypes/010-touch/dist/. site/proto/010/
-          cp -r prototypes/011-net/dist/. site/proto/011/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

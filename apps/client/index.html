@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0e0c0a" />
+  <title>Крысы крысят</title>
+  <style>
+    * { touch-action: none; -webkit-touch-callout: none; box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0e0c0a; overflow: hidden; overscroll-behavior: none; font-family: system-ui, sans-serif; color: #e8d9c0; -webkit-user-select: none; user-select: none; }
+    #game { position: fixed; inset: 0; display: block; }
+    canvas { image-rendering: pixelated; }
+    button { font: inherit; font-size: 16px; padding: 8px 16px; border-radius: 8px; border: 1px solid #888; background: #2a241f; color: #e8d9c0; }
+    button.primary { background: #e8d9c0; color: #111; border-color: #e8d9c0; font-weight: 700; }
+    button:disabled { opacity: .4; }
+    input { font: inherit; font-size: 16px; padding: 6px 10px; border-radius: 8px; border: 1px solid #777; background: #1c1814; color: #e8d9c0; text-align: center; }
+    .screen { position: fixed; inset: 0; display: none; place-items: center; background: rgba(14,12,10,.96); z-index: 20; overflow: auto; }
+    .screen.open { display: grid; }
+    .card { width: min(560px, 94vw); padding: 16px 18px; background: #16130f; border: 1px solid #3a322b; border-radius: 12px; line-height: 1.5; }
+    .card h1 { margin: 0 0 8px; font-size: 22px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+    .muted { opacity: .6; font-size: 13px; }
+    .map { padding: 8px 10px; border: 1px solid #3a322b; border-radius: 8px; cursor: pointer; }
+    .map.sel { border-color: #e8d9c0; background: #241f1a; }
+    .map.locked { cursor: default; opacity: .7; }
+    #rotate { position: fixed; inset: 0; display: none; place-items: center; background: #0e0c0a; z-index: 40; font-size: 22px; }
+    @media (orientation: portrait) { #rotate.on { display: grid; } }
+    .btn { position: fixed; border-radius: 50%; background: rgba(232,217,192,.14); border: 2px solid rgba(232,217,192,.45); display: none; place-items: center; font-weight: 700; z-index: 10; }
+    .btn.vis { display: grid; }
+    .btn.on { background: rgba(232,217,192,.45); }
+    #jump { width: 92px; height: 92px; font-size: 18px; right: 24px; bottom: 28px; }
+    #bite { width: 64px; height: 64px; font-size: 14px; right: 130px; bottom: 44px; }
+    #act  { width: 64px; height: 64px; font-size: 13px; right: 40px; bottom: 134px; }
+    #joy { position: fixed; width: 110px; height: 110px; border-radius: 50%; border: 2px solid rgba(232,217,192,.3); display: none; z-index: 10; pointer-events: none; }
+    #knob { position: absolute; width: 44px; height: 44px; left: 31px; top: 31px; border-radius: 50%; background: rgba(232,217,192,.55); }
+    #hud { position: fixed; left: 0; right: 0; top: 0; z-index: 10; pointer-events: none; display: none; padding: 6px 10px; font-size: 12px; }
+    #hud.vis { display: block; }
+    #panic { position: fixed; left: 50%; top: 6px; transform: translateX(-50%); width: min(300px, 40vw); height: 10px; background: rgba(0,0,0,.5); border: 1px solid #6a5a4a; border-radius: 6px; overflow: hidden; }
+    #panicFill { height: 100%; width: 0; background: linear-gradient(90deg, #c9a34a, #e2622e, #c21e1e); }
+    #hp { position: fixed; left: 10px; top: 6px; width: 110px; height: 10px; background: rgba(0,0,0,.5); border: 1px solid #6a5a4a; border-radius: 6px; overflow: hidden; }
+    #hpFill { height: 100%; width: 100%; background: #6fb06f; }
+    #pockets { position: fixed; left: 10px; top: 22px; display: flex; gap: 2px; }
+    #pockets span { width: 22px; height: 22px; border: 1px solid #5a4a3a; border-radius: 4px; display: grid; place-items: center; font-size: 15px; background: rgba(0,0,0,.35); }
+    #pockets span.full { border-color: #a08a6a; }
+    #info { position: fixed; right: 10px; top: 6px; text-align: right; font: 11px/1.4 ui-monospace, monospace; opacity: .7; }
+    #toast { position: fixed; left: 50%; top: 24px; transform: translateX(-50%); font-size: 15px; font-weight: 700; text-shadow: 0 1px 2px #000; opacity: 0; transition: opacity .3s; }
+    #toast.on { opacity: 1; }
+    table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 6px; text-align: left; border-bottom: 1px solid #2a241f; }
+  </style>
+</head>
+<body>
+  <div id="rotate">📱↻ Поверни телефон горизонтально</div>
+
+  <div id="screenLobby" class="screen open">
+    <div class="card">
+      <h1>🐀 Крысы крысят</h1>
+      <div id="joinBox">
+        <div class="row"><input id="name" placeholder="имя крысы" maxlength="12" /><input id="code" placeholder="код комнаты" maxlength="6" style="width:120px;text-transform:uppercase" /></div>
+        <div class="row"><button id="join" class="primary">Войти в Нору</button><span class="muted">код — любой; кто первый зашёл, тот выбирает карту</span></div>
+        <div class="muted" id="iosHint" style="display:none;color:#f0c674">iPhone: открой в Safari → Поделиться → «На экран Домой» — без адресной строки и свайпов.</div>
+      </div>
+      <div id="lobbyBox" style="display:none">
+        <div class="row">Комната <b id="codeShow"></b> · <span id="status" class="muted"></span></div>
+        <div class="row" id="players"></div>
+        <div class="row" id="maps"></div>
+        <div class="row"><button id="start" class="primary">В Вылазку</button><button id="leave">Выйти</button></div>
+        <div class="muted">Левая половина — джойстик · ПРЫГ · КУС · ДЕЙСТВИЕ (держать: поднять напарника, выход; тап: выбросить предмет). Укус валит Ребёнка и Пьяного; взрослого — только стаей. Водосток не пропускает Органы.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="screenResults" class="screen">
+    <div class="card">
+      <h1>Итоги Вылазки</h1>
+      <div id="resultsBody"></div>
+      <div class="row"><button id="back" class="primary">В Нору</button><span class="muted" id="resultsNote"></span></div>
+    </div>
+  </div>
+
+  <canvas id="game"></canvas>
+  <div id="joy"><div id="knob"></div></div>
+  <div id="jump" class="btn">ПРЫГ</div>
+  <div id="bite" class="btn">КУС</div>
+  <div id="act" class="btn">ДЕЙСТ.</div>
+  <div id="hud">
+    <div id="hp"><div id="hpFill"></div></div>
+    <div id="pockets"></div>
+    <div id="panic"><div id="panicFill"></div></div>
+    <div id="info"></div>
+    <div id="toast"></div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
