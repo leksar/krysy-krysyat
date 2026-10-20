@@ -3,7 +3,7 @@ id: 005
 title: GitHub-репозиторий и включённые Pages
 type: task
 status: open
-assignee:
+assignee: claude
 blocked_by: []
 ---
 ## Вопрос
