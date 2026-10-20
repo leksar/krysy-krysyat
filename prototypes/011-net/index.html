@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Прототип 011 — крысы по сети</title>
+  <style>
+    * { touch-action: none; -webkit-touch-callout: none; }
+    html, body { margin: 0; height: 100%; background: #0e0c0a; overflow: hidden; overscroll-behavior: none; font-family: system-ui, sans-serif; color: #e8d9c0; -webkit-user-select: none; user-select: none; }
+    #game { position: fixed; inset: 0; display: block; }
+    canvas { image-rendering: pixelated; }
+    #start { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(14,12,10,.94); z-index: 20; text-align: center; font-size: 18px; line-height: 1.6; }
+    #start input { font-size: 18px; padding: 6px 10px; border-radius: 8px; border: 1px solid #777; background: #1c1814; color: #e8d9c0; width: 160px; text-align: center; }
+    #start button { font-size: 18px; padding: 8px 22px; border-radius: 8px; border: 1px solid #aaa; background: #e8d9c0; color: #111; margin-top: 8px; }
+    #start small { opacity: .6; font-size: 13px; }
+    #rotate { position: fixed; inset: 0; display: none; place-items: center; background: #0e0c0a; z-index: 30; font-size: 22px; }
+    @media (orientation: portrait) { #rotate { display: grid; } }
+    .btn { position: fixed; border-radius: 50%; background: rgba(232,217,192,.14); border: 2px solid rgba(232,217,192,.45); display: grid; place-items: center; font-weight: 700; z-index: 10; }
+    .btn.on { background: rgba(232,217,192,.45); }
+    #jump { width: 92px; height: 92px; font-size: 18px; right: 24px; bottom: 28px; }
+    #bite { width: 64px; height: 64px; font-size: 14px; right: 130px; bottom: 44px; }
+    #joyBase { position: fixed; left: 75px; bottom: 35px; width: 110px; height: 110px; border-radius: 50%; border: 2px dashed rgba(232,217,192,.18); z-index: 5; pointer-events: none; }
+    #joy { position: fixed; width: 110px; height: 110px; border-radius: 50%; border: 2px solid rgba(232,217,192,.3); display: none; z-index: 10; pointer-events: none; }
+    #knob { position: absolute; width: 44px; height: 44px; left: 31px; top: 31px; border-radius: 50%; background: rgba(232,217,192,.55); }
+    #hud { position: fixed; left: 8px; top: 6px; font: 11px/1.4 ui-monospace, monospace; opacity: .8; z-index: 10; white-space: pre; pointer-events: none; }
+    #gear { position: fixed; right: 10px; top: 6px; z-index: 15; font-size: 20px; opacity: .7; }
+    #panel { position: fixed; right: 10px; top: 36px; z-index: 15; background: rgba(20,17,15,.95); border: 1px solid #555; border-radius: 8px; padding: 10px 12px; display: none; font-size: 14px; }
+    #panel.open { display: block; }
+    #panel label { display: block; margin: 4px 0; }
+    #panel input[type=range] { width: 140px; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <div id="rotate">📱↻ Поверни телефон горизонтально</div>
+  <div id="start">
+    <div>🐀🐀<br/>
+      <input id="name" placeholder="имя крысы" maxlength="12" /><br/>
+      <button id="go">В Вылазку</button><br/>
+      <small>левая половина — джойстик · справа — Прыжок и Укус · укус отбрасывает напарника</small><br/>
+      <small id="status" style="color:#f0c674"></small>
+    </div>
+  </div>
+  <canvas id="game"></canvas>
+  <div id="joyBase"></div>
+  <div id="joy"><div id="knob"></div></div>
+  <div id="jump" class="btn">ПРЫГ</div>
+  <div id="bite" class="btn">КУС</div>
+  <div id="hud"></div>
+  <div id="gear">⚙️</div>
+  <div id="panel">
+    <label><input type="checkbox" id="predict" checked /> предсказание своей крысы</label>
+    <label><input type="checkbox" id="interp" checked /> интерполяция чужих (100 мс)</label>
+    <label>искусств. задержка: <span id="lagV">0</span> мс<br/><input type="range" id="lag" min="0" max="400" step="10" value="0" /></label>
+    <label><input type="checkbox" id="ghost" /> показывать серверную позицию (призрак)</label>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

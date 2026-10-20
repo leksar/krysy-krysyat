@@ -3,7 +3,7 @@ id: 011
 title: Сетевой прототип — две крысы прыгают через сервер
 type: prototype
 status: open
-assignee:
+assignee: claude
 blocked_by: [001, 010]
 ---
 ## Вопрос

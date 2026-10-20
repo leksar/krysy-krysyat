@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "prototypes/010-touch"],
       "port": 5010
+    },
+    {
+      "name": "proto-011",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "prototypes/011-net"],
+      "port": 5011
     }
   ]
 }

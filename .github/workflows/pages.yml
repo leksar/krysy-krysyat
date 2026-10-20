@@ -22,13 +22,16 @@ jobs:
         with:
           node-version: '22'
       # Прототипы (выбрасываемые) публикуются рядом с заглушкой: /proto/<id>/
-      - name: Build prototype 010
-        working-directory: prototypes/010-touch
-        run: npm ci && npm run build
+      - run: npm ci
+      - name: Build prototypes
+        run: |
+          npm run build -w prototypes/010-touch
+          npm run build -w prototypes/011-net
       - name: Assemble site
         run: |
-          mkdir -p site/proto/010
+          mkdir -p site/proto/010 site/proto/011
           cp -r prototypes/010-touch/dist/. site/proto/010/
+          cp -r prototypes/011-net/dist/. site/proto/011/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

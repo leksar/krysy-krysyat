@@ -1,0 +1,17 @@
+{
+  "name": "proto-011-net",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@krysy/sim": "*",
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

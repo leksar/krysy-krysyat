@@ -1,0 +1,37 @@
+# /opt/krysy/docker-compose.yml на Hetzner. Снаружи порты не публикуем: вход только через council-caddy.
+name: krysy
+
+services:
+  krysy:
+    image: ghcr.io/leksar/krysy-server:${IMAGE_TAG:-latest}
+    container_name: krysy
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: "2567"
+      DB_PATH: /data/krysy.sqlite
+      ALLOWED_ORIGIN: https://leksar.github.io
+    volumes:
+      - data:/data
+    networks:
+      - council_net-main
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2567/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    deploy:
+      resources:
+        limits: { memory: 512M }
+
+networks:
+  council_net-main:
+    external: true
+
+volumes:
+  data:
