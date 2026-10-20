@@ -1,6 +1,6 @@
 // ПРОТОТИП 011. Тач-ввод из 010 (раскладка A, фиксированный джойстик, мёртвая зона у левого края).
 export const EDGE_DEAD = 48;
-export const JOY_FIXED_X = 130;
+export const JOY_MIN_X = EDGE_DEAD + 44; // центр джойстика не ближе: полный ход влево (40 px) остаётся вне мёртвой зоны
 
 export type Sample = { moveX: number; jump: boolean; jumpHeld: boolean; bite: boolean };
 
@@ -27,11 +27,13 @@ export class Touch {
       const t = e.target as HTMLElement;
       if (t !== document.body && t.id !== 'game') return;
       if (e.clientX > window.innerWidth / 2 || this.joyId !== null || e.clientX < EDGE_DEAD) return;
+      // плавающий джойстик: центр там, куда лёг палец (фиксированный после игры забраковали),
+      // но не ближе JOY_MIN_X к краю, чтобы ход влево не уезжал в зону свайпа
       this.joyId = e.pointerId;
-      this.joyCx = JOY_FIXED_X;
+      this.joyCx = Math.max(JOY_MIN_X, e.clientX);
       this.joyEl.style.display = 'block';
-      this.joyEl.style.left = JOY_FIXED_X - 55 + 'px';
-      this.joyEl.style.top = window.innerHeight - 90 - 55 + 'px';
+      this.joyEl.style.left = this.joyCx - 55 + 'px';
+      this.joyEl.style.top = e.clientY - 55 + 'px';
       this.moveKnob(e.clientX);
     });
     document.addEventListener('pointermove', (e) => { if (e.pointerId === this.joyId) this.moveKnob(e.clientX); });
