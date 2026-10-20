@@ -2,10 +2,18 @@
 id: 015
 title: Звуки и музыка — что нужно и где взять бесплатно
 type: research
-status: open
-assignee: claude
+status: closed
+assignee:
 blocked_by: []
 ---
 ## Вопрос
 
 Составить список звуков для первой версии (крыса: шаги, прыжок, приземление, укус, лежит/подняли, попить, Метка; люди: паника, крик ребёнка, топот, метла, тапок; голуби: хлопанье, крик, кража; Переполох: пороги, кот; UI: кнопки, Выход, успех/провал; фон: двор, эмбиент) и найти свободные источники (CC0 / CC-BY): Kenney audio, freesound.org (с фильтром по лицензии), OpenGameArt, sfxr/jsfxr-генерация для пиксельного стиля. Отдельно — короткий луп музыки Норы и напряжённый луп на высоком Переполохе. Как проигрывать в браузере на телефоне: Web Audio, разблокировка одним тапом, спрайт-карта звуков, howler vs своя обёртка. Выход: таблица «звук / источник / лицензия / файл», рекомендация по воспроизведению.
+
+## Резолюция
+
+Составлено 45 звуковых событий в шести группах (Крыса 13, Люди 12, Голуби 5, Переполох 5, UI 7, Фон 3), минимум для первой играбельной версии — ~25. Больше половины «игровых» звуков (прыжок, укус, подбор, UI, пороги Переполоха) генерируются в jsfxr/sfxr.me (Unlicense) — так они одинаково 8-битные; записанный фоли только для существ и среды: Squeaky Rat, Meow, Thwack, Swishes, 7 Eating Crunches, 80 creature SFX (все CC0, OpenGameArt), Kenney Interface/Impact/RPG Audio (CC0), пакет Juhani Junkala «512 Sound Effects» (CC0, папки Footsteps / Jumping / Alarms / Fanfares), freesound с фильтром CC0 (голубь воркует и хлопает, крыса, кот шипит, ребёнок кричит, метла, двор с голубями). CC-BY-запасные (крики congusbongus, Yo Frankie!) — в титры. Музыка: Нора — «Rat Sewer» (HaelDB, CC0, луп с капелью); высокий Переполох — Juhani Junkala «5 Chiptunes (Action)» Level 3 (CC0, бесшовный луп); запасные «Uneasy town», «Tense Future Loop», «Mysterious Sewer» (CC0).
+
+Воспроизведение: **своя обёртка над Web Audio (~150 строк)**, без howler (2.2.4 от сентября 2023, 420 issue, нет `visibilitychange`, пересоздаёт контекст под 44,1 кГц) и без `@pixi/sound` (6.0.1 от июля 2024, год без коммитов, пауза по `blur`, компрессор в графе). AudioContext (`latencyHint: 'interactive'`) создаётся/`resume()` в том же тапе «войти», что fullscreen и Wake Lock; все sfx — один аудиоспрайт `.ogg` + `.m4a` (iOS < 18.4 не декодирует Vorbis), играется `BufferSource.start(0, offset, duration)`; звук своей Крысы — по `pointerdown` вместе с предсказанием; в фоне `suspend()` по `visibilitychange`, при возврате `resume()` с обходом iOS `interrupted` / WebKit 276016 (`suspend()`→`resume()`); контекст в Вылазке не усыплять. Шины sfx/music/amb, затухание по расстоянию от своей Крысы, debounce и вариации для шагов/хлопков.
+
+Таблица и детали: [docs/research/sounds.md](../../research/sounds.md).
