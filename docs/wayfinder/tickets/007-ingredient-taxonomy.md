@@ -3,7 +3,7 @@ id: 007
 title: Таксономия Ингредиентов и Свойств
 type: grilling
 status: open
-assignee:
+assignee: claude
 blocked_by: []
 ---
 ## Вопрос
