@@ -43,9 +43,10 @@ wss.on('connection', (ws, req) => {
     if (m.t === 'i') {
       // пачка инпутов (клиент шлёт неподтверждённые повторно — защита от потери)
       for (const i of m.inputs as Input[]) {
-        if (typeof i.seq !== 'number' || i.seq <= peer.last.seq && !(peer.queue.length && i.seq <= peer.queue[peer.queue.length - 1].seq)) {
-          if (i.seq <= (peer.queue.length ? peer.queue[peer.queue.length - 1].seq : peer.last.seq)) continue;
-        }
+        if (typeof i.seq !== 'number') continue;
+        // дубли отсеиваем против самого нового известного seq — и обработанного, и стоящего в очереди
+        const newest = peer.queue.length ? peer.queue[peer.queue.length - 1].seq : peer.last.seq;
+        if (i.seq <= newest) continue;
         if (peer.queue.length > 60) break;
         peer.queue.push({ seq: i.seq, moveX: clamp(Number(i.moveX) || 0, -1, 1), jump: !!i.jump, jumpHeld: !!i.jumpHeld, bite: !!i.bite });
       }
@@ -83,7 +84,7 @@ setInterval(() => {
     const rats: Rat[] = [];
     for (const p of peers.values()) {
       // часы клиента и сервера расходятся → очередь дрейфует; при накоплении догоняем по два за тик
-      const steps = p.queue.length > 4 ? 2 : 1;
+      const steps = p.queue.length > 8 ? 3 : p.queue.length > 3 ? 2 : 1;
       for (let k = 0; k < steps; k++) {
         const input = p.queue.length ? p.queue.shift()! : { ...p.last, jump: false, bite: false, seq: p.last.seq };
         p.last = input;
