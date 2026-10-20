@@ -1,6 +1,7 @@
 # /opt/krysy/caddy/krysy.caddy — импортируется строкой `import /etc/caddy/sites/*.caddy`
 # внутри блока 89-167-106-105.sslip.io в /opt/council/Caddyfile.
 # Применить: docker exec council-caddy caddy reload --config /etc/caddy/Caddyfile  (рвёт WebSocket — между Вылазками)
-handle_path /krysy/* {
+# /krysy* — чтобы /krysy без хвостового слэша (WebSocket-эндпоинт) тоже попадал к нам, а не в council
+handle_path /krysy* {
 	reverse_proxy krysy:2567
 }
