@@ -18,7 +18,9 @@ let nextId = 1;
 const http = createServer((req, res) => {
   if (req.url === '/health' || req.url === '/') {
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
-    res.end(JSON.stringify({ ok: true, version: VERSION, rats: peers.size, tick }));
+    // отладка очередей инпутов: длина очереди на Крысу и сколько тиков мы реально сделали за последнюю секунду
+    const q: Record<string, number> = {}; for (const [id, p] of peers) q[p.name + '#' + id] = p.queue.length;
+    res.end(JSON.stringify({ ok: true, version: VERSION, rats: peers.size, tick, tps: tpsLast, queues: q }));
   } else { res.writeHead(404); res.end(); }
 });
 const wss = new WebSocketServer({ server: http, maxPayload: 4096 });
@@ -71,11 +73,13 @@ function broadcast(msg: unknown) { const s = JSON.stringify(msg); for (const p o
 
 // --- авторитетный цикл: ровно один инпут на тик на Крысу; нет инпута — держим последний ---
 let acc = 0, last = performance.now();
+let tpsCount = 0, tpsLast = 0, tpsAt = performance.now();
 setInterval(() => {
   const now = performance.now();
   acc += Math.min(0.25, (now - last) / 1000); last = now;
+  if (now - tpsAt >= 1000) { tpsLast = tpsCount; tpsCount = 0; tpsAt = now; }
   while (acc >= TICK) {
-    acc -= TICK; tick++;
+    acc -= TICK; tick++; tpsCount++;
     const rats: Rat[] = [];
     for (const p of peers.values()) {
       // часы клиента и сервера расходятся → очередь дрейфует; при накоплении догоняем по два за тик
