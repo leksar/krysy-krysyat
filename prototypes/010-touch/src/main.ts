@@ -35,7 +35,12 @@ $('gear').onclick = () => panel.classList.toggle('open');
 $<HTMLInputElement>('coyote').onchange = (e) => (flags.coyote = (e.target as HTMLInputElement).checked);
 $<HTMLInputElement>('buffer').onchange = (e) => (flags.buffer = (e.target as HTMLInputElement).checked);
 $<HTMLInputElement>('varjump').onchange = (e) => (flags.varJump = (e.target as HTMLInputElement).checked);
-$<HTMLInputElement>('joyFixed').onchange = (e) => (touch.fixedJoy = (e.target as HTMLInputElement).checked);
+$<HTMLInputElement>('joyFixed').onchange = (e) => {
+  touch.fixedJoy = (e.target as HTMLInputElement).checked;
+  $('joyBase').style.display = touch.fixedJoy ? 'block' : 'none';
+};
+// iOS Safari / встроенные браузеры (Telegram) не умеют Fullscreen API — подсказываем PWA
+if (!document.fullscreenEnabled) $('iosHint').style.display = 'block';
 
 // --- старт: один тап = fullscreen + поворот ---
 startEl.addEventListener('pointerup', async () => {
@@ -80,7 +85,12 @@ function drawRat(facing: 1 | -1, grounded: boolean, biting: boolean, vy: number)
   body.circle(facing > 0 ? 11 : 3, 1.5, 1.6).fill(0xd9a5a5);
   body.circle(facing > 0 ? 13.5 : 0.5, 3, 0.7).fill(0x111111);
   biteFx.clear();
-  if (biting) biteFx.arc(facing > 0 ? 17 : -3, 4, 6, -1, 1).stroke({ width: 2, color: 0xfff1b0 });
+  // дуга укуса — перед мордой, зеркально по направлению
+  if (biting) {
+    const cx = facing > 0 ? 19 : -5;
+    const a0 = facing > 0 ? -1 : Math.PI - 1, a1 = facing > 0 ? 1 : Math.PI + 1;
+    biteFx.arc(cx, 4, 6, a0, a1).stroke({ width: 2, color: 0xfff1b0 });
+  }
 }
 
 const label = new Text({ text: '', style: { fontFamily: 'monospace', fontSize: 9, fill: 0xe8d9c0 } });

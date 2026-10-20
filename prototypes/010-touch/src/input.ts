@@ -8,6 +8,9 @@ export const LAYOUTS: Layout[] = [
   { name: 'C: Кус выше', jump: { right: 24, bottom: 28 }, bite: { right: 40, bottom: 134 } },
 ];
 
+export const EDGE_DEAD = 48;
+export const JOY_FIXED_X = 130;
+
 export class Touch {
   axisX = 0;
   jumpHeld = false;
@@ -16,7 +19,7 @@ export class Touch {
   private bitePressed = false;
   private joyId: number | null = null;
   private joyCx = 0;
-  fixedJoy = false;
+  fixedJoy = true;
 
   constructor(private joyEl: HTMLElement, private knobEl: HTMLElement, jumpEl: HTMLElement, biteEl: HTMLElement) {
     const bindBtn = (el: HTMLElement, down: () => void, up: () => void) => {
@@ -31,8 +34,10 @@ export class Touch {
     document.addEventListener('pointerdown', (e) => {
       if (e.target !== document.body && (e.target as HTMLElement).id !== 'game') return;
       if (e.clientX > window.innerWidth / 2 || this.joyId !== null) return;
+      // мёртвая зона у левого края: там iOS/Telegram ловят свайп «назад»
+      if (e.clientX < EDGE_DEAD) return;
       this.joyId = e.pointerId;
-      const cx = this.fixedJoy ? 90 : e.clientX;
+      const cx = this.fixedJoy ? JOY_FIXED_X : e.clientX;
       const cy = this.fixedJoy ? window.innerHeight - 90 : e.clientY;
       this.joyCx = cx;
       this.joyEl.style.display = 'block';
