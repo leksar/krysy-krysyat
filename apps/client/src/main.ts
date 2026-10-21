@@ -1,5 +1,5 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
-import { Application, Assets, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
 import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, stepRat, applyRatSnap, PHYS, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
 import { Touch } from './input';
@@ -162,11 +162,22 @@ function stationHere(): StationId | null { return me && phase === 'lobby' ? stat
 
 // ---------- шторка станции ----------
 function openSheet(id: StationId) { audio.play('ui'); openStation = id; cauldron = []; $('sheet').classList.add('open'); renderSheet(); }
-function closeSheet() { openStation = null; ratSheetId = null; $('sheet').classList.remove('open'); }
+function closeSheet() { openStation = null; ratSheetId = null; $('sheet').classList.remove('open'); $('sheet').classList.remove('big'); }
 // ---------- карточка крысы (тап по крысе) ----------
 type Look = { fat: number; acid: number; alive: number; sweet: number; infect: number; loud: number; sticky: number; rot: number };
 function lookOf(id: string): Look { const m = profiles[id]?.mut ?? {}; return { fat: m['Жирное'] ?? 0, acid: m['Едкое'] ?? 0, alive: m['Живое'] ?? 0, sweet: m['Сладкое'] ?? 0, infect: m['Заразное'] ?? 0, loud: m['Шумное'] ?? 0, sticky: m['Липкое'] ?? 0, rot: m['Гнилое'] ?? 0 }; }
-function openRatSheet(id: string) { audio.play('ui'); openStation = null; ratSheetId = id; $('sheet').classList.add('open'); renderRatSheet(id); }
+function openRatSheet(id: string) { audio.play('ui'); openStation = null; ratSheetId = id; $('sheet').classList.add('open'); $('sheet').classList.add('big'); renderRatSheet(id); }
+/** Портрет крысы: та же векторная крыса с её Мутациями, отрисованная в текстуру и увеличенная пиксель-в-пиксель */
+function ratPortrait(id: string, frame: number): string {
+  const c = new Container(); const g = new Graphics(); c.addChild(g);
+  const v = { c, sp: new Sprite(Texture.EMPTY), extra: new Sprite(Texture.EMPTY), g, label: new Text({ text: '' }), bar: new Graphics(), anim: 0 } as View;
+  g.position.set(14, 10);
+  drawRat(v, { facing: 1, grounded: true, biting: false, down: false, dead: false, vx: 0 }, colorOf(id), frame, lookOf(id));
+  const frameG = new Graphics(); frameG.rect(0, 0, 44, 26).fill({ color: 0x000000, alpha: 0 }); c.addChildAt(frameG, 0);
+  const cv = app.renderer.extract.canvas({ target: c, resolution: 1, frame: new Rectangle(0, 0, 44, 26) }) as HTMLCanvasElement;
+  c.destroy({ children: true });
+  return cv.toDataURL();
+}
 function renderRatSheet(id: string) {
   const pr = profiles[id]; const body = $('sheetBody');
   if (!pr) { body.innerHTML = '<h2>Крыса</h2><div class="muted">нет данных</div>'; return; }
@@ -175,11 +186,11 @@ function renderRatSheet(id: string) {
   const maxGene = Math.max(100, ...PROPS.map((p) => pr.dna[p] ?? 0));
   const muts = PROPS.filter((p) => pr.mut[p]).map((p) => `<div>🧬 <b>${MUTATION_NAMES[p]} ${pr.mut[p]}</b> <span class="muted">— ${MUTATION_DESC[p][Math.min(2, pr.mut[p]! - 1)]}</span></div>`).join('') || '<div class="muted">Мутаций нет</div>';
   const dom = [...PROPS].sort((a, b) => (pr.dna[b] ?? 0) - (pr.dna[a] ?? 0)).slice(0, 2);
-  body.innerHTML = `<h2>${mine ? '🐀 Ты: ' : '🐀 '}${esc(pr.name)}</h2>
+  body.innerHTML = `<div class="ratcard"><div class="portrait"><img src="${ratPortrait(id, frame)}" alt="${esc(pr.name)}"/></div><div class="ratinfo"><h2>${mine ? 'Ты: ' : ''}${esc(pr.name)}</h2>
     <div class="muted">Вылазок: ${pr.raids} · вынесено: ${pr.banked} · карманов: ${RULES.pockets + pr.pockets + (pr.mut['Жирное'] ?? 0)}${snap ? ` · HP ${snap.hp}/${snap.mh}${snap.dn ? ' · лежит' : ''}${snap.pk.length ? ` · несёт: ${snap.pk.map((k) => KINDS[k]?.name).join(', ')}` : ''}` : ''}</div>
     <div style="margin:6px 0">${muts}</div>
     <div class="muted" style="font-size:12px">Порода по ДНК: <b>${dom.join(' + ')}</b> — такие Мутации у неё сильнее</div>
-    <div class="dna" style="margin-top:4px">${PROPS.map((p) => `<span>${p}</span><i><b style="width:${((pr.dna[p] ?? 0) / maxGene) * 100}%"></b></i><span class="muted">${pr.dna[p] ?? 0}</span>`).join('')}</div>`;
+    <div class="dna" style="margin-top:4px">${PROPS.map((p) => `<span>${p}</span><i><b style="width:${((pr.dna[p] ?? 0) / maxGene) * 100}%"></b></i><span class="muted">${pr.dna[p] ?? 0}</span>`).join('')}</div></div></div>`;
 }
 /** Тап по крысе: короткое касание без сдвига над крысой открывает карточку (и в Норе, и на Вылазке) */
 let tapStart: { x: number; y: number; t: number; id: number } | null = null;
@@ -197,6 +208,7 @@ document.addEventListener('pointerup', (e) => {
   if (best) openRatSheet(best);
 });
 $('sheetClose').onclick = closeSheet;
+(window as any).krysy = { openRat: (id?: string) => openRatSheet(id ?? myId), me: () => myId }; // отладка из консоли
 $('mute').textContent = audio.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { audio.unlock(); $('mute').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
 function chip(kind: string, count?: number, extra = '') { const k = KINDS[kind]; return `<span class="chip ${k.type}" data-kind="${kind}" ${extra}><img src="${itemIcon(kind)}"/>${k.name}${count !== undefined ? ` <b>×${count}</b>` : ''}</span>`; }
