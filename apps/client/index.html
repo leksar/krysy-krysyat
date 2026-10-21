@@ -70,6 +70,17 @@
     #pockets i { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
     #pockets em { font-style: normal; opacity: .5; font-size: 10px; margin-left: auto; }
     #info { position: fixed; right: 10px; top: 6px; text-align: right; font: 11px/1.4 ui-monospace, monospace; opacity: .7; }
+    #topbar { position: fixed; left: 10px; top: 6px; z-index: 11; font-size: 12px; display: flex; gap: 8px; align-items: center; }
+    #hint { position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 10; font-size: 14px; font-weight: 700; text-shadow: 0 1px 3px #000; pointer-events: none; background: rgba(0,0,0,.45); padding: 4px 10px; border-radius: 8px; }
+    #hint:empty { display: none; }
+    #sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 62vh; overflow: auto; background: rgba(16,13,10,.97); border-top: 2px solid #5a4a3a; border-radius: 14px 14px 0 0; padding: 10px 14px 12px; z-index: 25; transform: translateY(105%); transition: transform .2s; font-size: 14px; }
+    #sheet.open { transform: none; }
+    #sheet h2 { margin: 0 0 6px; font-size: 18px; }
+    #sheetClose { position: sticky; bottom: 0; float: right; margin-top: 8px; }
+    #sheet .chip { font-size: 14px; padding: 6px 10px; }
+    #sheet button { font-size: 15px; padding: 8px 14px; }
+    #sheet .slot { width: 40px; height: 40px; } #sheet .slot img { width: 24px; height: 24px; }
+    body.nora #hp, body.nora #pockets, body.nora #panic { display: none; }
     #toast { position: fixed; left: 50%; top: 24px; transform: translateX(-50%); font-size: 15px; font-weight: 700; text-shadow: 0 1px 2px #000; opacity: 0; transition: opacity .3s; }
     #toast.on { opacity: 1; }
     table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 6px; text-align: left; border-bottom: 1px solid #2a241f; }
@@ -88,25 +99,6 @@
         <div id="rooms" class="muted" style="margin-top:6px"></div>
         <div class="muted" id="iosHint" style="display:none;color:#f0c674">iPhone: открой в Safari → Поделиться → «На экран Домой» — без адресной строки и свайпов.</div>
       </div>
-      <div id="lobbyBox" style="display:none">
-        <div class="row">Комната <b id="codeShow"></b> · <span id="status" class="muted"></span></div>
-        <div class="row" id="players"></div>
-        <div class="row" id="maps"></div>
-        <div class="row"><button id="start" class="primary">В Вылазку</button><button id="leave">Выйти</button><span id="pourInfo" class="muted"></span></div>
-        <div class="cols">
-          <div class="col">
-            <h3>Склад Стаи</h3><div id="stash" class="muted">пусто — всё, что вынесете с Вылазки, ляжет сюда</div>
-            <h3>Котёл <span id="cauldronSize" class="muted"></span></h3><div id="cauldron"></div><div class="row"><button id="brewBtn" class="small">Сварить Зелье</button><span id="brewHint" class="muted" style="font-size:12px">тапни Ингредиенты на Складе, чтобы положить в Котёл</span></div>
-            <h3>Зелья</h3><div id="potions" class="muted">нет</div>
-          </div>
-          <div class="col">
-            <h3>Моя крыса</h3><div id="myrat"></div>
-            <h3>Постройки</h3><div id="builds"></div>
-            <h3>Журнал</h3><div id="log" class="log"></div>
-          </div>
-        </div>
-        <div class="muted">Левая половина — джойстик · ПРЫГ · КУС · ДЕЙСТВИЕ (держать: поднять напарника, выход; тап: выбросить предмет). Укус валит Ребёнка и Пьяного; взрослого — только стаей. Водосток не пропускает Органы.<br/><b>Метка:</b> у лужи держи ДЕЙСТ. — попила; у еды на земле держи ДЕЙСТ. — пометила. Человек съест → заражён → через 30 с болеет (роняет Гной), ещё через 30 — ослаб: добивается одной крысой, уникальный Орган. Два заражённых открывают Люк.<br/><b>Клавиатура:</b> ← → или A D — бег · Пробел / W / ↑ — прыжок (держи дольше — выше) · <b>F или X — укус</b> · E или Z — действие (держать: поднять / выход; тап: выбросить).</div>
-      </div>
     </div>
   </div>
 
@@ -124,6 +116,9 @@
   <div id="bite" class="btn">КУС</div>
   <div id="act" class="btn">ДЕЙСТ.</div>
   <button id="abort" style="position:fixed;right:10px;top:26px;z-index:12;display:none;font-size:12px;padding:4px 8px;opacity:.75">Прервать Вылазку</button>
+  <div id="topbar" style="display:none"><span id="roomInfo"></span><button id="leave" class="small">Выйти</button></div>
+  <div id="hint"></div>
+  <div id="sheet"><div id="sheetBody"></div><button id="sheetClose">Закрыть</button></div>
   <div id="hud">
     <div id="hp"><div id="hpFill"></div></div>
     <div id="pockets"></div>

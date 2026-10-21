@@ -1,7 +1,7 @@
 // Сервер «Крысы крысят»: комнаты по коду, лобби → Вылазка → итоги, авторитетная симуляция из @krysy/sim.
 import { createServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { createWorld, addRat, stepRat, stepWorld, snapWorld, MAPS, TICK, TICK_HZ, EMPTY_INPUT, KINDS, brew, drink, raidMods, ratMods, type Input, type World, type Phase, type Potion } from '@krysy/sim';
+import { createWorld, createNoraWorld, addRat, stepRat, stepWorld, snapWorld, stationAt, MAPS, TICK, TICK_HZ, EMPTY_INPUT, KINDS, brew, drink, raidMods, ratMods, type Input, type World, type Phase, type Potion, type StationId } from '@krysy/sim';
 import { Store, BUILD_INFO, type Profile, type Builds } from './store.js';
 
 const PORT = Number(process.env.PORT ?? 2567);
@@ -15,7 +15,7 @@ process.on('SIGTERM', () => { store.flush(); process.exit(0); });
 process.on('SIGINT', () => { store.flush(); process.exit(0); });
 
 type Peer = { ws: WebSocket; id: string; name: string; room: Room; queue: Input[]; last: Input; alive: boolean; profile: Profile };
-type Room = { code: string; peers: Map<string, Peer>; hostId: string | null; map: string; phase: Phase; world: World | null; phaseLeft: number; seed: number; pour: number[] };
+type Room = { code: string; peers: Map<string, Peer>; hostId: string | null; map: string; phase: Phase; world: World | null; nora: World; phaseLeft: number; seed: number; pour: number[] };
 const rooms = new Map<string, Room>();
 let nextId = 1;
 
@@ -36,7 +36,7 @@ const wss = new WebSocketServer({ server: http, maxPayload: 4096 });
 
 function getRoom(code: string): Room {
   let r = rooms.get(code);
-  if (!r) { r = { code, peers: new Map(), hostId: null, map: 'yard', phase: 'lobby', world: null, phaseLeft: 0, seed: hash(code), pour: [] }; rooms.set(code, r); }
+  if (!r) { r = { code, peers: new Map(), hostId: null, map: 'yard', phase: 'lobby', world: null, nora: createNoraWorld(), phaseLeft: 0, seed: hash(code), pour: [] }; rooms.set(code, r); }
   return r;
 }
 function hash(s: string) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h | 0; }
@@ -50,10 +50,10 @@ function lobbyMsg(room: Room) {
 function noraMsg() {
   const n = store.nora;
   const builds: Record<string, unknown> = {};
-  for (const k of Object.keys(BUILD_INFO) as (keyof Builds)[]) { const b = BUILD_INFO[k]; const lvl = n.builds[k]; builds[k] = { name: b.name, desc: b.desc, level: lvl, max: b.max, cost: lvl < b.max ? b.cost(lvl) : null }; }
+  { const b = BUILD_INFO.cauldron; const lvl = n.builds.cauldron; builds.cauldron = { name: b.name, desc: b.desc, level: lvl, max: b.max, cost: lvl < b.max ? b.cost(lvl) : null }; }
   return { t: 'nora', stash: n.stash, potions: n.potions, cauldron: store.cauldronSize(), builds, log: n.log.slice(-8) };
 }
-function meMsg(p: Profile) { return { t: 'me', name: p.name, code: p.code, dna: p.dna, mut: p.mut, raids: p.raids, banked: p.banked, mods: ratMods(p.dna, p.mut) }; }
+function meMsg(p: Profile) { const b = BUILD_INFO.pockets; return { t: 'me', name: p.name, code: p.code, dna: p.dna, mut: p.mut, raids: p.raids, banked: p.banked, mods: (() => { const m = ratMods(p.dna, p.mut); m.pockets += p.pockets; return m; })(), pockets: { level: p.pockets, max: b.max, cost: p.pockets < b.max ? b.cost(p.pockets) : null } }; }
 function broadcastAll(o: unknown) { const s = JSON.stringify(o); for (const room of rooms.values()) for (const p of room.peers.values()) if (p.ws.readyState === p.ws.OPEN) p.ws.send(s); }
 function pushNora() { broadcastAll(noraMsg()); }
 
@@ -72,6 +72,7 @@ wss.on('connection', (ws, req) => {
   console.log(`+ ${name} (#${id}) → ${code} [${room.peers.size}]`);
   send(ws, { t: 'welcome', id, tickHz: TICK_HZ, version: VERSION });
   send(ws, noraMsg()); send(ws, meMsg(peer.profile));
+  if (room.phase !== 'raid') addRat(room.nora, id, name, peerMods(peer));
   // опоздавший в идущую Вылазку — заходит крысой у входа
   if (room.phase === 'raid' && room.world) { addRat(room.world, id, name, peerMods(peer)); send(ws, { t: 'raid', map: room.world.map, seed: room.seed, mods: room.world.mods, ratMods: Object.fromEntries([...room.world.rats.values()].map((r) => [r.id, r.mods])) }); }
   broadcast(room, lobbyMsg(room));
@@ -90,23 +91,25 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'ping': send(ws, { t: 'pong', c: m.c }); break;
-      case 'setMap': if (peer.id === room.hostId && room.phase === 'lobby' && MAPS[m.map]) { room.map = m.map; broadcast(room, lobbyMsg(room)); } break;
-      case 'start': if (peer.id === room.hostId && room.phase === 'lobby') startRaid(room); break;
+      case 'setMap': if (peer.id === room.hostId && room.phase === 'lobby' && MAPS[m.map] && at(peer, 'table')) { room.map = m.map; broadcast(room, lobbyMsg(room)); } break;
+      case 'start': if (peer.id === room.hostId && room.phase === 'lobby' && at(peer, 'tunnel')) startRaid(room); break;
       case 'back': if (room.phase === 'results') toLobby(room); break;
       // --- Нора ---
       case 'brew': {
+        if (!at(peer, 'cauldron')) { send(ws, { t: 'err', text: 'Подойди к Котлу' }); break; }
         const kinds: string[] = Array.isArray(m.kinds) ? m.kinds.filter((k: unknown) => typeof k === 'string' && KINDS[k]).slice(0, store.cauldronSize()) : [];
         if (kinds.length < 2) { send(ws, { t: 'err', text: 'В Котёл нужно хотя бы 2 Ингредиента' }); break; }
         if (!store.take(kinds)) { send(ws, { t: 'err', text: 'На Складе столько нет' }); break; }
         const pot = brew(store.nora.nextPotion++, kinds); store.nora.potions.push(pot); store.log(`${peer.name} сварила Зелье #${pot.id}`); store.save(); pushNora(); break;
       }
       case 'pour': {
-        if (peer.id !== room.hostId || room.phase !== 'lobby') break;
+        if (peer.id !== room.hostId || room.phase !== 'lobby' || !at(peer, 'shelf')) break;
         const id = Number(m.id); if (!store.nora.potions.some((p) => p.id === id)) break;
         if (room.pour.includes(id)) room.pour = room.pour.filter((x) => x !== id); else if (room.pour.length < 2) room.pour.push(id);
         broadcast(room, lobbyMsg(room)); break;
       }
       case 'drink': {
+        if (!at(peer, 'shelf')) { send(ws, { t: 'err', text: 'Подойди к полке' }); break; }
         const id = Number(m.id); const i = store.nora.potions.findIndex((p) => p.id === id); if (i < 0) break;
         const pot = store.nora.potions.splice(i, 1)[0];
         for (const r of rooms.values()) r.pour = r.pour.filter((x) => x !== id);
@@ -116,6 +119,12 @@ wss.on('connection', (ws, req) => {
       }
       case 'build': {
         const k = m.what as keyof Builds; const b = BUILD_INFO[k]; if (!b) break;
+        if (!at(peer, k === 'pockets' ? 'rack' : 'cauldron')) { send(ws, { t: 'err', text: 'Подойди к постройке' }); break; }
+        if (k === 'pockets') { // личная постройка крысы за общие Ингредиенты
+          const lvl = peer.profile.pockets; if (lvl >= b.max) break;
+          if (!store.payByType(b.cost(lvl))) { send(ws, { t: 'err', text: 'Не хватает Ингредиентов' }); break; }
+          peer.profile.pockets = lvl + 1; store.log(`${peer.name} расширила свои Карманы до ${lvl + 1}`); store.save(); send(ws, meMsg(peer.profile)); pushNora(); break;
+        }
         const lvl = store.nora.builds[k]; if (lvl >= b.max) break;
         if (!store.payByType(b.cost(lvl))) { send(ws, { t: 'err', text: 'Не хватает Ингредиентов' }); break; }
         store.nora.builds[k] = lvl + 1; store.log(`${peer.name} построила: ${b.name} ${lvl + 1}`); store.save(); pushNora(); break;
@@ -125,6 +134,7 @@ wss.on('connection', (ws, req) => {
   });
   ws.on('close', () => {
     room.peers.delete(id);
+    room.nora.rats.delete(id);
     if (room.world) { const r = room.world.rats.get(id); if (r && !r.exited) { r.dead = true; } }
     if (room.hostId === id) room.hostId = room.peers.keys().next().value ?? null;
     console.log(`- ${name} (#${id}) ← ${code} [${room.peers.size}]`);
@@ -133,7 +143,9 @@ wss.on('connection', (ws, req) => {
   ws.on('pong', () => (peer.alive = true));
 });
 
-function peerMods(p: Peer) { const m = ratMods(p.profile.dna, p.profile.mut); m.pockets += store.nora.builds.pockets; return m; }
+/** Крыса стоит у станции Норы (сервер не верит клиенту на слово) */
+function at(p: Peer, id: StationId): boolean { if (p.room.phase !== 'lobby') return false; const r = p.room.nora.rats.get(p.id); return !!r && stationAt(r.x, r.y)?.id === id; }
+function peerMods(p: Peer) { const m = ratMods(p.profile.dna, p.profile.mut); m.pockets += p.profile.pockets; return m; }
 function startRaid(room: Room) {
   room.seed = (room.seed * 1103515245 + 12345) | 0;
   // вылитые Зелья расходуются и становятся Модификаторами этой Вылазки
@@ -159,7 +171,11 @@ function endRaid(room: Room) {
   broadcast(room, { t: 'results', rows, panic: Math.round(w.panic), map: w.map });
   console.log(`■ ${room.code}: ${rows.map((r) => `${r.name}:${r.exited ? 'out' : 'dead'}(${r.loot.length})`).join(' ')}`);
 }
-function toLobby(room: Room) { room.phase = 'lobby'; room.world = null; broadcast(room, lobbyMsg(room)); }
+function toLobby(room: Room) {
+  room.phase = 'lobby'; room.world = null; room.nora = createNoraWorld();
+  for (const p of room.peers.values()) { addRat(room.nora, p.id, p.name, peerMods(p)); p.queue = []; p.last = { ...EMPTY_INPUT }; }
+  broadcast(room, lobbyMsg(room));
+}
 function clamp(v: number, a: number, b: number) { return Math.max(a, Math.min(b, v)); }
 
 // --- цикл ---
@@ -173,6 +189,16 @@ setInterval(() => {
     acc -= TICK; tpsCount++;
     for (const room of rooms.values()) {
       if (room.phase === 'results') { room.phaseLeft -= TICK; if (room.phaseLeft <= 0) toLobby(room); continue; }
+      if (room.phase === 'lobby') { // Нора: крысы бегают, мир без NPC
+        const w = room.nora; w.tick++;
+        const solid = [...w.rats.values()];
+        for (const p of room.peers.values()) {
+          const steps = p.queue.length > 8 ? 3 : p.queue.length > 3 ? 2 : 1;
+          for (let k = 0; k < steps; k++) { const input = p.queue.length ? p.queue.shift()! : { ...p.last, jump: false, bite: false, act: false, seq: p.last.seq }; p.last = input; const r = w.rats.get(p.id); if (r) stepRat(w.level, r, input, solid); }
+        }
+        if (w.tick % SNAP_EVERY === 0) broadcast(room, { t: 's', ...snapWorld(w), ev: [] });
+        continue;
+      }
       if (room.phase !== 'raid' || !room.world) continue;
       const w = room.world;
       const inputs = new Map<string, Input>();

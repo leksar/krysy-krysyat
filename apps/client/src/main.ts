@@ -1,7 +1,7 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
-import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER } from './sprites';
-import { generateLevel, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop } from '@krysy/sim';
+import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
+import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
 import { Touch } from './input';
 import { Net, type LobbyMsg, type ResultsMsg } from './net';
 
@@ -23,7 +23,7 @@ let selectedMap = 'yard';
 let raidModsCur: RaidMods = BASE_RAID;
 let ratModsById: Record<string, RatMods> = {};
 type NoraMsg = { stash: Record<string, number>; potions: Potion[]; cauldron: number; builds: Record<string, { name: string; desc: string; level: number; max: number; cost: Record<string, number> | null }>; log: string[] };
-type MeMsg = { name: string; code: string; dna: DNA; mut: Mutations; raids: number; banked: number; mods: RatMods };
+type MeMsg = { name: string; code: string; dna: DNA; mut: Mutations; raids: number; banked: number; mods: RatMods; pockets: { level: number; max: number; cost: Record<string, number> | null } };
 let nora: NoraMsg | null = null, meInfo: MeMsg | null = null;
 let cauldron: string[] = [];
 // аккаунт: секретный код живёт в телефоне
@@ -39,7 +39,7 @@ document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - las
 document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 if (!document.fullscreenEnabled) $('iosHint').style.display = 'block';
 
-// ---------- лобби ----------
+// ---------- вход ----------
 const nameEl = $<HTMLInputElement>('name'), codeEl = $<HTMLInputElement>('code');
 nameEl.value = localStorage.getItem('ratName') ?? '';
 codeEl.value = (new URLSearchParams(location.search).get('room') ?? localStorage.getItem('room') ?? '').toUpperCase();
@@ -70,73 +70,150 @@ async function pollRooms() {
   } catch { $('rooms').textContent = 'сервер не отвечает'; }
 }
 setInterval(pollRooms, 3000); pollRooms();
-$('start').onclick = () => net.send({ t: 'start' });
-$('back').onclick = () => { net.send({ t: 'back' }); showLobby(); };
+$('back').onclick = () => { net.send({ t: 'back' }); $('screenResults').classList.remove('open'); };
 function randomCode() { const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 4; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
 
-function showJoin() { phase = 'join'; $('screenLobby').classList.add('open'); $('screenResults').classList.remove('open'); $('joinBox').style.display = ''; $('lobbyBox').style.display = 'none'; setControls(false); }
-function showLobby() { phase = 'lobby'; $('screenLobby').classList.add('open'); $('screenResults').classList.remove('open'); $('joinBox').style.display = 'none'; $('lobbyBox').style.display = ''; setControls(false); }
-function setControls(on: boolean) { touch.enabled = on; for (const id of ['jump', 'bite', 'act']) $(id).classList.toggle('vis', on); $('hud').classList.toggle('vis', on); $('rotate').classList.toggle('on', on); $('abort').style.display = on && lobby?.hostId === myId ? '' : 'none'; }
+function showJoin() { phase = 'join'; $('screenLobby').classList.add('open'); $('screenResults').classList.remove('open'); setControls(false); document.body.classList.remove('nora'); closeSheet(); }
+function setControls(on: boolean) { touch.enabled = on; for (const id of ['jump', 'bite', 'act']) $(id).classList.toggle('vis', on); $('hud').classList.toggle('vis', on); $('rotate').classList.toggle('on', on); $('abort').style.display = on && phase === 'raid' && lobby?.hostId === myId ? '' : 'none'; $('topbar').style.display = on && phase === 'lobby' ? '' : 'none'; }
 $('abort').onclick = () => { if (confirm('Прервать Вылазку для всех? Добыча не вернувшихся пропадёт.')) net.send({ t: 'abort' }); };
 
-net.on('status', (t, closed) => { $('status').textContent = t; if (closed) { showJoin(); $('joinBox').insertAdjacentHTML('beforeend', `<div class="muted">${t}</div>`); } });
+// ---------- Нора как уровень ----------
+let openStation: StationId | null = null;
+function enterNora() {
+  phase = 'lobby';
+  level = noraLevel();
+  me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0; raidModsCur = BASE_RAID;
+  buildLevel(level, 'nora');
+  buildStations();
+  $('screenLobby').classList.remove('open'); $('screenResults').classList.remove('open');
+  document.body.classList.add('nora');
+  setControls(true);
+  closeSheet();
+  toast('Нора. Подойди к предмету и нажми ДЕЙСТ.');
+}
+type StationView = { c: Container; label: Text; sub: Text; sp: Sprite; extra: Graphics };
+const stationViews = new Map<StationId, StationView>();
+const STATION_TEX: Record<StationId, SpriteDef> = { stash: PILE, cauldron: CAULDRON, shelf: SHELF, table: TABLE, rack: RACK, tunnel: TUNNEL };
+function buildStations() {
+  stationViews.clear();
+  for (const st of NORA_STATIONS) {
+    const c = new Container();
+    const sp = new Sprite(tex('st_' + st.id, STATION_TEX[st.id])); sp.anchor.set(0.5, 1);
+    const w = (st.c1 - st.c0 + 1) * TILE; sp.position.set(w / 2, TILE);
+    const label = new Text({ text: st.name, style: { fontFamily: 'monospace', fontSize: 8, fill: 0xe8d9c0, fontWeight: '700' } }); label.anchor.set(0.5, 1); label.position.set(w / 2, TILE - sp.height - 3);
+    const sub = new Text({ text: '', style: { fontFamily: 'monospace', fontSize: 7, fill: 0xbfae94 } }); sub.anchor.set(0.5, 0); sub.position.set(w / 2, TILE + 1);
+    const extra = new Graphics();
+    c.addChild(extra, sp, label, sub); c.position.set(st.c0 * TILE, st.row * TILE); marks.addChild(c);
+    stationViews.set(st.id, { c, label, sub, sp, extra });
+  }
+  updateStations();
+}
+/** Подписи и «наполнение» станций из состояния Норы */
+function updateStations() {
+  if (phase !== 'lobby' || !stationViews.size) return;
+  const host = lobby?.hostId === myId;
+  const total = nora ? Object.values(nora.stash).reduce((s, n) => s + n, 0) : 0;
+  const sv = (id: StationId) => stationViews.get(id)!;
+  sv('stash').sub.text = total ? `${total} шт.` : 'пусто';
+  sv('stash').sp.scale.set(total ? Math.min(2.2, 1 + total / 40) : 0.7);
+  sv('cauldron').sub.text = nora ? `${nora.cauldron} слота` : '';
+  sv('shelf').sub.text = nora ? (nora.potions.length ? `Зелий: ${nora.potions.length}` : 'пусто') : '';
+  sv('table').sub.text = lobby ? `${MAPS[lobby.map]?.name ?? lobby.map}${lobby.pour.length ? ` + Зелья ${lobby.pour.map((i) => '#' + i).join(',')}` : ''}` : '';
+  sv('rack').sub.text = meInfo ? `мои: ${meInfo.pockets.level}/${meInfo.pockets.max}` : '';
+  sv('tunnel').sub.text = host ? 'ДЕЙСТ. — в Вылазку' : 'откроет хозяин';
+  // бутылки на полке
+  const g = sv('shelf').extra; g.clear();
+  if (nora) for (let i = 0; i < Math.min(8, nora.potions.length); i++) g.roundRect(6 + i * 11, 2, 6, 11, 2).fill([0x7fd3ff, 0xa0e070, 0xe07070, 0xe8d070][i % 4]);
+}
+function stationHere(): StationId | null { return me && phase === 'lobby' ? stationAt(me.x, me.y)?.id ?? null : null; }
+
+// ---------- шторка станции ----------
+function openSheet(id: StationId) { openStation = id; cauldron = []; $('sheet').classList.add('open'); renderSheet(); }
+function closeSheet() { openStation = null; $('sheet').classList.remove('open'); }
+$('sheetClose').onclick = closeSheet;
+function chip(kind: string, count?: number, extra = '') { const k = KINDS[kind]; return `<span class="chip ${k.type}" data-kind="${kind}" ${extra}><img src="${itemIcon(kind)}"/>${k.name}${count !== undefined ? ` <b>×${count}</b>` : ''}</span>`; }
+function propsHtml(p: Potion) { const d = dominant(p); return `<span class="props">${PROPS.filter((x) => p.props[x]).map((x) => `<span${x === d ? ' style="outline:1px solid #e8d9c0"' : ''}>${x} ${p.props[x]}</span>`).join('')}</span>`; }
+const TYPE_RU: Record<string, string> = { food: 'Еда', trash: 'Мусор', secr: 'Выделения', organ: 'Органы' };
+function costHtml(cost: Record<string, number> | null) { return cost ? Object.entries(cost).filter(([, n]) => n).map(([t, n]) => `${TYPE_RU[t]} ×${n}`).join(', ') : 'максимум'; }
+function renderSheet() {
+  if (!openStation || !nora) return;
+  const host = lobby?.hostId === myId;
+  const body = $('sheetBody');
+  const st = NORA_STATIONS.find((s) => s.id === openStation)!;
+  let html = `<h2>${st.name}</h2>`;
+  const stashEntries = Object.entries(nora.stash).filter(([, n]) => n > 0).sort((a, b) => KINDS[a[0]].type.localeCompare(KINDS[b[0]].type));
+  switch (openStation) {
+    case 'stash':
+      html += stashEntries.length ? `<div>${stashEntries.map(([k, n]) => chip(k, n)).join('')}</div><div class="muted">Неси Ингредиенты в Котёл — он рядом.</div>` : '<div class="muted">Пусто. Всё, что вынесете с Вылазки через Выход, ляжет сюда.</div>';
+      break;
+    case 'cauldron': {
+      let slots = ''; for (let i = 0; i < nora.cauldron; i++) slots += `<span class="slot" data-i="${i}">${cauldron[i] ? `<img src="${itemIcon(cauldron[i])}"/>` : ''}</span>`;
+      const preview = cauldron.length >= 2 ? propsHtml({ id: 0, from: cauldron, props: cauldron.reduce((acc: Record<string, number>, k) => { for (const pr of (ITEM_PROPS_LOCAL[k] ?? [])) acc[pr] = (acc[pr] ?? 0) + 1; return acc; }, {}) as Potion['props'] }) : '';
+      const d = cauldron.length >= 2 ? dominant({ id: 0, from: cauldron, props: cauldron.reduce((acc: Record<string, number>, k) => { for (const pr of (ITEM_PROPS_LOCAL[k] ?? [])) acc[pr] = (acc[pr] ?? 0) + 1; return acc; }, {}) as Potion['props'] }) : null;
+      html += `<div class="row">${slots}<button id="brewBtn" class="primary" ${cauldron.length < 2 ? 'disabled' : ''}>Сварить</button></div>`;
+      html += preview ? `<div>Получится: ${preview}${d ? ` <span class="muted">· выпить → ${MUTATION_NAMES[d]}</span>` : ''}</div>` : '<div class="muted">Положи 2–' + nora.cauldron + ' Ингредиента со Склада:</div>';
+      html += `<div>${stashEntries.map(([k, n]) => chip(k, n - cauldron.filter((c) => c === k).length)).join('') || '<span class="muted">Склад пуст</span>'}</div>`;
+      const cb = nora.builds.cauldron; html += `<div class="build" style="margin-top:8px"><b>Улучшить Котёл</b> ${cb.level}/${cb.max} <span class="muted">— ${cb.desc}. Цена: ${costHtml(cb.cost)}</span> ${cb.cost ? `<button class="small" data-build="cauldron">Построить</button>` : ''}</div>`;
+      break;
+    }
+    case 'shelf':
+      html += nora.potions.length ? nora.potions.map((p) => `<div class="potion ${lobby?.pour.includes(p.id) ? 'pour' : ''}"><b>Зелье #${p.id}</b> ${propsHtml(p)}<div class="muted" style="font-size:11px">из: ${p.from.map((k) => KINDS[k].name).join(', ')}${dominant(p) ? ` · выпить → ${MUTATION_NAMES[dominant(p)!]} · вылить → ${PROPS.filter((x) => p.props[x]).map((x) => MODIFIER_NAMES[x]).join(', ')}` : ''}</div><div class="row"><button class="small" data-drink="${p.id}">Выпить</button>${host ? `<button class="small" data-pour="${p.id}">${lobby?.pour.includes(p.id) ? 'Снять со стола' : 'На стол — вылить на карту'}</button>` : ''}</div></div>`).join('') : '<div class="muted">Полка пуста — свари Зелье в Котле.</div>';
+      if (meInfo) {
+        const muts = PROPS.filter((p) => meInfo!.mut[p]).map((p) => `<span class="props"><span>🧬 ${MUTATION_NAMES[p]} ${meInfo!.mut[p]}</span></span>`).join(' ');
+        const maxGene = Math.max(100, ...PROPS.map((p) => meInfo!.dna[p]));
+        html += `<details style="margin-top:6px"><summary class="muted">Моя крыса: ${muts || 'без Мутаций'} · ДНК</summary><div class="dna" style="margin-top:4px">${PROPS.map((p) => `<span>${p}</span><i><b style="width:${(meInfo!.dna[p] / maxGene) * 100}%"></b></i><span class="muted">${meInfo!.dna[p]}</span>`).join('')}</div></details>`;
+      }
+      break;
+    case 'table':
+      html += host ? `<div class="row">${lobby!.maps.map((x) => `<div class="map ${x.id === lobby!.map ? 'sel' : ''}" data-id="${x.id}"><b>${x.name}</b><br/><span class="muted">${x.desc}</span></div>`).join('')}</div>` : `<div>Карта: <b>${MAPS[lobby!.map]?.name}</b> — выбирает хозяин (👑).</div>`;
+      html += `<div class="muted">${lobby?.pour.length ? `На карту выльем: ${lobby.pour.map((i) => '#' + i).join(', ')} → ${raidPreview()}` : 'Зелья на карту кладутся с Полки.'}</div><div class="muted">Когда готовы — все к Туннелю справа.</div>`;
+      break;
+    case 'rack': {
+      const pb = meInfo?.pockets;
+      html += pb ? `<div class="build"><b>Карманы ${esc(meInfo!.name)}</b> ${pb.level}/${pb.max} <span class="muted">— личная постройка: +1 ячейка только этой крысе, платит Стая со Склада. Цена: ${costHtml(pb.cost)}</span> ${pb.cost ? `<button class="small" data-build="pockets">Сшить сумку</button>` : ''}</div><div class="muted">Сейчас у тебя карманов: ${RULES.pockets + (meInfo?.mods.pockets ?? 0)}</div>` : '';
+      break;
+    }
+    case 'tunnel':
+      html += host ? `<div class="row"><button id="startBtn" class="primary">В Вылазку: ${MAPS[lobby!.map]?.name}</button><span class="muted">${lobby?.pour.length ? raidPreview() : 'без Модификаторов'}</span></div><div class="muted">Крысы: ${lobby!.players.map((p) => esc(p.name)).join(', ')}</div>` : `<div>Туннель откроет хозяин (👑 ${esc(lobby!.players.find((p) => p.id === lobby!.hostId)?.name ?? '')}). Жди здесь.</div>`;
+      break;
+  }
+  html += `<div class="log" style="margin-top:8px">${nora.log.slice(-4).join('\n')}</div>`;
+  body.innerHTML = html;
+  for (const el of body.querySelectorAll<HTMLElement>('.chip')) el.onclick = () => { if (openStation !== 'cauldron') return; const k = el.dataset.kind!; const have = nora!.stash[k] - cauldron.filter((c) => c === k).length; if (have > 0 && cauldron.length < nora!.cauldron) { cauldron.push(k); renderSheet(); } };
+  for (const el of body.querySelectorAll<HTMLElement>('.slot')) el.onclick = () => { const i = Number(el.dataset.i); if (cauldron[i]) { cauldron.splice(i, 1); renderSheet(); } };
+  const brewBtn = body.querySelector<HTMLElement>('#brewBtn'); if (brewBtn) brewBtn.onclick = () => { if (cauldron.length >= 2) { net.send({ t: 'brew', kinds: cauldron }); cauldron = []; } };
+  for (const el of body.querySelectorAll<HTMLElement>('[data-build]')) el.onclick = () => net.send({ t: 'build', what: el.dataset.build });
+  for (const el of body.querySelectorAll<HTMLElement>('[data-pour]')) el.onclick = () => net.send({ t: 'pour', id: Number(el.dataset.pour) });
+  for (const el of body.querySelectorAll<HTMLElement>('[data-drink]')) el.onclick = () => { const p = nora!.potions.find((x) => x.id === Number(el.dataset.drink))!; const d = dominant(p); if (confirm(`Выпить Зелье #${p.id}?${d ? ` Мутация «${MUTATION_NAMES[d]}» (${MUTATION_DESC[d][Math.min(2, (meInfo?.mut[d] ?? 0))]}). ` : ' '}Это навсегда.`)) net.send({ t: 'drink', id: p.id }); };
+  for (const el of body.querySelectorAll<HTMLElement>('.map')) el.onclick = () => net.send({ t: 'setMap', map: el.dataset.id });
+  const startBtn = body.querySelector<HTMLElement>('#startBtn'); if (startBtn) startBtn.onclick = () => net.send({ t: 'start' });
+}
+function raidPreview() { if (!nora || !lobby) return ''; const ps = nora.potions.filter((p) => lobby!.pour.includes(p.id)); const names = new Set<string>(); for (const p of ps) for (const pr of PROPS) if (p.props[pr]) names.add(MODIFIER_NAMES[pr]); return [...names].join(', '); }
+
+net.on('status', (t, closed) => { const st = document.getElementById('status'); if (st) st.textContent = t; if (closed) { showJoin(); $('joinBox').insertAdjacentHTML('beforeend', `<div class="muted">${t}</div>`); } });
 net.on('welcome', (id) => { myId = id; });
 net.on('lobby', (m) => {
   lobby = m; selectedMap = m.map;
-  if (phase === 'join' || phase === 'lobby') showLobby();
-  $('codeShow').textContent = m.code;
-  const host = m.hostId === myId;
-  $('players').innerHTML = m.players.map((p) => `<span>${p.id === m.hostId ? '👑 ' : '🐀 '}${esc(p.name)}</span>`).join(' · ');
-  $('maps').innerHTML = m.maps.map((x) => `<div class="map ${x.id === m.map ? 'sel' : ''} ${host ? '' : 'locked'}" data-id="${x.id}"><b>${x.name}</b><br/><span class="muted">${x.desc}</span></div>`).join('');
-  if (host) for (const el of $('maps').querySelectorAll<HTMLElement>('.map')) el.onclick = () => net.send({ t: 'setMap', map: el.dataset.id });
-  $<HTMLButtonElement>('start').disabled = !host;
-  $('start').textContent = host ? 'В Вылазку' : 'Ждём хозяина комнаты…';
-  renderNora();
+  if (m.phase === 'lobby' && phase !== 'lobby') enterNora();
+  $('roomInfo').innerHTML = `Комната <b>${m.code}</b> · ${m.players.map((p) => `${p.id === m.hostId ? '👑' : '🐀'} ${esc(p.name)}`).join(' · ')} · <span id="status" class="muted"></span>`;
+  updateStations(); if (openStation) renderSheet();
 });
 net.on('raid', (map, seed, mods, ratMods) => {
   raidModsCur = mods ?? BASE_RAID; ratModsById = ratMods ?? {};
   level = generateLevel(map, seed);
   me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0;
-  buildLevel(level);
-  phase = 'raid';
+  phase = 'raid'; closeSheet(); document.body.classList.remove('nora');
+  buildLevel(level, map);
   $('screenLobby').classList.remove('open'); $('screenResults').classList.remove('open');
   setControls(true);
   toast(raidModsCur.names.length ? `${MAPS[map].name} · ${raidModsCur.names.join(', ')}` : `${MAPS[map].name}: собрать и дойти до Выхода`);
 });
 net.on('results', (m) => showResults(m));
-net.on('nora', (m) => { nora = m; renderNora(); });
-net.on('me', (m) => { meInfo = m; renderNora(); });
+net.on('nora', (m) => { nora = m; updateStations(); if (openStation) renderSheet(); });
+net.on('me', (m) => { meInfo = m; updateStations(); if (openStation) renderSheet(); });
 net.on('err', (t) => toast(t));
 net.on('drank', (fam, tier) => toast(fam ? `Мутация: ${MUTATION_NAMES[fam as Prop]} ${tier}` : 'Зелье без Доминанты — только ДНК'));
 
-function chip(kind: string, count?: number, extra = '') { const k = KINDS[kind]; return `<span class="chip ${k.type}" data-kind="${kind}" ${extra}><img src="${itemIcon(kind)}"/>${k.name}${count !== undefined ? ` <b>×${count}</b>` : ''}</span>`; }
-function propsHtml(p: Potion) { const d = dominant(p); return `<span class="props">${PROPS.filter((x) => p.props[x]).map((x) => `<span${x === d ? ' style="outline:1px solid #e8d9c0"' : ''}>${x} ${p.props[x]}</span>`).join('')}</span>`; }
-function renderNora() {
-  if (!nora) return;
-  const host = lobby?.hostId === myId;
-  const stashEntries = Object.entries(nora.stash).filter(([, n]) => n > 0).sort((a, b) => KINDS[a[0]].type.localeCompare(KINDS[b[0]].type));
-  $('stash').innerHTML = stashEntries.length ? stashEntries.map(([k, n]) => chip(k, n - cauldron.filter((c) => c === k).length)).join('') : 'пусто — всё, что вынесете с Вылазки, ляжет сюда';
-  for (const el of $('stash').querySelectorAll<HTMLElement>('.chip')) el.onclick = () => { const k = el.dataset.kind!; const have = nora!.stash[k] - cauldron.filter((c) => c === k).length; if (have > 0 && cauldron.length < nora!.cauldron) { cauldron.push(k); renderNora(); } };
-  $('cauldronSize').textContent = `(${cauldron.length}/${nora.cauldron})`;
-  let slots = ''; for (let i = 0; i < nora.cauldron; i++) slots += `<span class="slot" data-i="${i}">${cauldron[i] ? `<img src="${itemIcon(cauldron[i])}" title="${KINDS[cauldron[i]].name}"/>` : ''}</span>`;
-  const preview = cauldron.length >= 2 ? propsHtml({ id: 0, from: cauldron, props: cauldron.reduce((acc: Record<string, number>, k) => { for (const pr of (ITEM_PROPS_LOCAL[k] ?? [])) acc[pr] = (acc[pr] ?? 0) + 1; return acc; }, {}) as Potion['props'] }) : '';
-  $('cauldron').innerHTML = slots + (preview ? `<div style="margin-top:4px">Получится: ${preview}</div>` : '');
-  for (const el of $('cauldron').querySelectorAll<HTMLElement>('.slot')) el.onclick = () => { const i = Number(el.dataset.i); if (cauldron[i]) { cauldron.splice(i, 1); renderNora(); } };
-  $<HTMLButtonElement>('brewBtn').disabled = cauldron.length < 2;
-  $('potions').innerHTML = nora.potions.length ? nora.potions.map((p) => `<div class="potion ${lobby?.pour.includes(p.id) ? 'pour' : ''}">Зелье #${p.id} ${propsHtml(p)}<br/><span class="muted">из: ${p.from.map((k) => KINDS[k].name).join(', ')}</span><div class="row">${host ? `<button class="small" data-pour="${p.id}">${lobby?.pour.includes(p.id) ? 'Не лить' : 'Вылить на карту'}</button>` : ''}<button class="small" data-drink="${p.id}">Выпить</button>${dominant(p) ? `<span class="muted" style="font-size:11px">выпить → ${MUTATION_NAMES[dominant(p)!]}; вылить → ${PROPS.filter((x) => p.props[x]).map((x) => MODIFIER_NAMES[x]).join(', ')}</span>` : ''}</div></div>`).join('') : 'нет — свари в Котле';
-  for (const el of $('potions').querySelectorAll<HTMLElement>('[data-pour]')) el.onclick = () => net.send({ t: 'pour', id: Number(el.dataset.pour) });
-  for (const el of $('potions').querySelectorAll<HTMLElement>('[data-drink]')) el.onclick = () => { const p = nora!.potions.find((x) => x.id === Number(el.dataset.drink))!; const d = dominant(p); if (confirm(`Выпить Зелье #${p.id}?${d ? ` Мутация «${MUTATION_NAMES[d]}» (${MUTATION_DESC[d][Math.min(2, (meInfo?.mut[d] ?? 0))]}). ` : ' '}Это навсегда.`)) net.send({ t: 'drink', id: p.id }); };
-  if (meInfo) {
-    const maxGene = Math.max(100, ...PROPS.map((p) => meInfo!.dna[p]));
-    const muts = PROPS.filter((p) => meInfo!.mut[p]).map((p) => `<div>🧬 <b>${MUTATION_NAMES[p]} ${meInfo!.mut[p]}</b> — ${MUTATION_DESC[p][Math.min(2, meInfo!.mut[p]! - 1)]}</div>`).join('') || '<div class="muted">Мутаций нет — выпей Зелье</div>';
-    $('myrat').innerHTML = `<div><b>${esc(meInfo.name)}</b> <span class="muted">· Вылазок: ${meInfo.raids} · вынесено: ${meInfo.banked} · карманов: ${RULES.pockets + meInfo.mods.pockets + (nora?.builds.pockets?.level ?? 0)}</span></div>${muts}<div class="dna" style="margin-top:6px">${PROPS.map((p) => `<span>${p}</span><i><b style="width:${(meInfo!.dna[p] / maxGene) * 100}%"></b></i><span class="muted">${meInfo!.dna[p]}</span>`).join('')}</div>`;
-  }
-  $('builds').innerHTML = Object.entries(nora.builds).map(([k, b]) => `<div class="build"><b>${b.name}</b> ${b.level}/${b.max} <span class="muted">— ${b.desc}</span>${b.cost ? `<div class="row"><span class="muted" style="font-size:12px">цена: ${Object.entries(b.cost).filter(([, n]) => n).map(([t, n]) => `${{ food: 'Еда', trash: 'Мусор', secr: 'Выделения', organ: 'Органы' }[t]} ×${n}`).join(', ')}</span><button class="small" data-build="${k}">Построить</button></div>` : '<span class="muted"> · максимум</span>'}</div>`).join('');
-  for (const el of $('builds').querySelectorAll<HTMLElement>('[data-build]')) el.onclick = () => net.send({ t: 'build', what: el.dataset.build });
-  $('log').textContent = nora.log.join('\n');
-  $('pourInfo').textContent = lobby?.pour.length ? `На карту выльем: ${lobby.pour.map((id) => '#' + id).join(', ')}` : '';
-}
-$('brewBtn').onclick = () => { if (cauldron.length >= 2) { net.send({ t: 'brew', kinds: cauldron }); cauldron = []; } };
 net.on('snapshot', (s) => {
   snaps.push(s); while (snaps.length > 30) snaps.shift();
   const rs = s.rats.find((r) => r.id === myId);
@@ -206,8 +283,8 @@ let levelSprite: Sprite | null = null;
 const marks = new Container(); const ents = new Container(); const fxLayer = new Container();
 stage.addChild(marks, ents, fxLayer);
 
-function buildLevel(l: Level) {
-  const theme = THEMES[selectedMapId()] ?? THEMES.yard;
+function buildLevel(l: Level, themeId: string) {
+  const theme = THEMES[themeId] ?? THEMES.yard;
   app.renderer.background.color = theme.bg;
   if (levelSprite) { levelSprite.destroy({ texture: true }); }
   const t = Texture.from(drawLevel(l.cols, l.rows, l.solid, theme)); t.source.scaleMode = 'nearest';
@@ -217,7 +294,6 @@ function buildLevel(l: Level) {
   for (const v of ents.children) v.destroy(); ents.removeChildren();
   views.clear();
 }
-function selectedMapId() { return lobby?.map ?? 'yard'; }
 
 type View = { c: Container; sp: Sprite; extra: Sprite; g: Graphics; label: Text; bar: Graphics; anim: number };
 const views = new Map<string, View>();
@@ -287,10 +363,11 @@ let acc = 0, last = performance.now(), frame = 0, prevX = 0, prevY = 0;
 app.ticker.add(() => {
   const now = performance.now();
   acc += Math.min(0.1, (now - last) / 1000); last = now; frame++;
-  if (phase !== 'raid' || !level) return;
+  if ((phase !== 'raid' && phase !== 'lobby') || !level) return;
   while (acc >= TICK) {
     acc -= TICK;
     const s = touch.sample();
+    if (phase === 'lobby' && s.act) { const st = stationHere(); if (st) openSheet(st); }
     if (me) {
       const input: Input = { seq: ++seq, ...s };
       prevX = me.x; prevY = me.y;
@@ -381,7 +458,13 @@ app.ticker.add(() => {
     }
     for (const [k, v] of views) if (!seen.has(k)) { v.c.destroy(); views.delete(k); }
 
-    if (frame % 6 === 0) {
+    if (frame % 6 === 0 && phase === 'lobby') {
+      const st = stationHere();
+      $('hint').textContent = st ? `ДЕЙСТ. — ${NORA_STATIONS.find((x) => x.id === st)!.name}: ${NORA_STATIONS.find((x) => x.id === st)!.hint}` : '';
+      if (openStation && st !== openStation) closeSheet();
+      $('info').textContent = `ping ${net.rtt} · ${Math.round(app.ticker.FPS)} fps`;
+    }
+    if (frame % 6 === 0 && phase === 'raid') {
       const meS = s1.rats.find((r) => r.id === myId);
       $('panicFill').style.width = s1.panic + '%';
       if (meS) {

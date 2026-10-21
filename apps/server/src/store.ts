@@ -3,13 +3,13 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from '
 import { dirname } from 'node:path';
 import { KINDS, PROPS, newDNA, type DNA, type Mutations, type Potion } from '@krysy/sim';
 
-export type Profile = { code: string; name: string; dna: DNA; mut: Mutations; created: number; raids: number; banked: number };
+export type Profile = { code: string; name: string; dna: DNA; mut: Mutations; created: number; raids: number; banked: number; pockets: number };
 export type Builds = { pockets: number; cauldron: number };
 export type Nora = { stash: Record<string, number>; potions: Potion[]; nextPotion: number; builds: Builds; log: string[] };
 type Data = { profiles: Record<string, Profile>; nora: Nora };
 
 export const BUILD_INFO: Record<keyof Builds, { name: string; desc: string; max: number; cost: (lvl: number) => Record<'food' | 'trash' | 'secr' | 'organ', number> }> = {
-  pockets: { name: 'Карманы', desc: '+1 ячейка Карманов всем Крысам Стаи', max: 3, cost: (l) => ({ food: 6 + 4 * l, trash: 6 + 4 * l, secr: 0, organ: 0 }) },
+  pockets: { name: 'Карманы', desc: '+1 ячейка Карманов этой Крысе (личная постройка)', max: 3, cost: (l) => ({ food: 6 + 4 * l, trash: 6 + 4 * l, secr: 0, organ: 0 }) },
   cauldron: { name: 'Котёл', desc: '+1 слот Котла (больше Ингредиентов в Зелье)', max: 2, cost: (l) => ({ food: 0, trash: 4, secr: 4 + 2 * l, organ: 1 + l }) },
 };
 
@@ -36,8 +36,8 @@ export class Store {
   /** Аккаунт по секретному коду: есть — вернуть (ник обновить), нет — создать с случайной ДНК. */
   profile(code: string, name: string): Profile {
     let p = this.data.profiles[code];
-    if (!p) { p = { code, name, dna: newDNA(Math.random), mut: {}, created: Date.now(), raids: 0, banked: 0 }; this.data.profiles[code] = p; this.log(`родилась крыса ${name}`); }
-    else if (name && p.name !== name) p.name = name;
+    if (!p) { p = { code, name, dna: newDNA(Math.random), mut: {}, created: Date.now(), raids: 0, banked: 0, pockets: 0 }; this.data.profiles[code] = p; this.log(`родилась крыса ${name}`); }
+    else { if (name && p.name !== name) p.name = name; p.pockets ??= 0; }
     this.save(); return p;
   }
   get nora() { return this.data.nora; }

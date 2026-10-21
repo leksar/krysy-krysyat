@@ -5,7 +5,9 @@
 
 export * from './gen.js';
 export * from './alchemy.js';
+export * from './nora.js';
 import { MAPS, generateLevel } from './gen.js';
+import { noraLevel } from './nora.js';
 import { BASE_MODS, BASE_RAID, type RatMods, type RaidMods } from './alchemy.js';
 
 export const TILE = 16;
@@ -154,6 +156,12 @@ export function createWorld(map: string, seed: number, mods: RaidMods = BASE_RAI
   for (let i = 0; i < Math.min(def.pigeons.V + mods.extraV, level.perches.length); i++) spawnPigeon(w, 'V');
   for (let i = 0; i < Math.min(def.pigeons.F, level.perches.length); i++) spawnPigeon(w, 'F');
   return w;
+}
+
+/** Мир Норы: только крысы, без Людей/Голубей/предметов; stepWorld для него не вызывается. */
+export function createNoraWorld(): World {
+  const level = noraLevel();
+  return { map: 'nora', level, tick: 0, rng: 1, rats: new Map(), humans: [], pigeons: [], items: [], cat: null, panic: 0, stage: 0, nextId: 1, events: [], over: false, mods: BASE_RAID, acidT: 0 };
 }
 
 function makeHuman(w: World, type: HumanType, x: number, y: number): Human {

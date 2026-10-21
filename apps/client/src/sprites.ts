@@ -195,12 +195,23 @@ export const EXITS: Record<string, SpriteDef> = {
 };
 export const WATER: SpriteDef = ['................', '................', '................', '................', '................', '................', '................', '................', '................', '................', '....eeeeeeee....', '..eeeeewweeeeee.', '.eeeeeeeeeeeeeee', '..eeeeeeeeeeee..', '................', '................'];
 
+// ---------- станции Норы ----------
+export const PILE: SpriteDef = ['................', '......yyqq......', '....yyrrqqee....', '...yrrqqyyeeq...', '..qqyyrreeqqyy..', '.rrqqeeyyqqrree.', 'yyeeqqrryyeeqqrr'];
+export const CAULDRON: SpriteDef = [
+  '.......ee.ee......', '......e..e..e.....', '....qqqqqqqqqqq...', '...qQQQQQQQQQQQq..', '..qQQQQQQQQQQQQQq.', '..qQQQQQQQQQQQQQq.', '..qQQQQQQQQQQQQQq.', '...qQQQQQQQQQQQq..', '....qqqqqqqqqqq...', '.....DDD...DDD....', '.....DDD...DDD....', '....rrrrrrrrrrr...', '...rRRrrRRrrRRrr..'];
+export const SHELF: SpriteDef = ['dddddddddddddddddddddddddddddddddddddddddddddddd', 'DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD', '.d............................................d.', '.d............................................d.', '.d............................................d.', '.d............................................d.', '.d............................................d.', '.d............................................d.', '.d............................................d.', '.d............................................d.', '.d............................................d.', '.d............................................d.', '.d............................................d.', 'dddddddddddddddddddddddddddddddddddddddddddddddd', 'DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD'];
+export const TABLE: SpriteDef = ['......wwwwwwwwwwwwwwwwwwww......', '......wvvvvwwwbbbwwwvvvvww......', '......wwvvwwwwbbbwwwwvvwww......', '......wwwwwwwrwwwwwwwwwwww......', 'dddddddddddddddddddddddddddddddd', 'DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD', '..DD........................DD..', '..DD........................DD..', '..DD........................DD..', '..DD........................DD..', '..DD........................DD..', '..DD........................DD..'];
+export const RACK: SpriteDef = ['dddddddddddddddddddd', '.d..d..d..d..d..d..d', '.d.yy.yy.yy.yy.yy..d', '.d.yY.yY.yY.yY.yY..d', '.d.YY.YY.YY.YY.YY..d', '.d.................d', 'dddddddddddddddddddd', '.d.................d', '.d.................d'];
+export const TUNNEL: SpriteDef = [
+  '..........DDDDDDDDDDDD..........', '.......DDDkkkkkkkkkkkkDDD.......', '.....DDkkkkkkkkkkkkkkkkkkDD.....', '....DkkkkkkkkkkkkkkkkkkkkkkD....', '...DkkkkkkkkkkkkkkkkkkkkkkkkD...', '..DkkkkkkkkkkkkkkkkkkkkkkkkkkD..', '..DkkkkkkkkkkkkkkkkkkkkkkkkkkD..', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.'];
+
 // ---------- тайлы 16×16: три варианта на карту; верхняя кромка подсвечивается отдельно ----------
 export type TileTheme = { base: string; dark: string; light: string; top: string; bg: string; bgDeco: string };
 export const THEMES: Record<string, TileTheme> = {
   yard:    { base: '#6e5538', dark: '#4e3a25', light: '#846846', top: '#8fa15a', bg: '#1b1713', bgDeco: '#2a231c' },
   kitchen: { base: '#7d8591', dark: '#5a6069', light: '#9aa3ad', top: '#b8c0c8', bg: '#14181d', bgDeco: '#1f262e' },
   roof:    { base: '#5f5b57', dark: '#3f3c39', light: '#78736e', top: '#8c8580', bg: '#101216', bgDeco: '#1a1e26' },
+  nora:    { base: '#5a3f2c', dark: '#3a271a', light: '#76563c', top: '#6e5038', bg: '#120d09', bgDeco: '#1d1510' },
 };
 
 /** Рисует весь уровень в один canvas (≤ 1920×448) → одна текстура. */
