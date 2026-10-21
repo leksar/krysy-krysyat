@@ -403,6 +403,7 @@ function onEvent(e: Event) {
 // ---------- рендер ----------
 const app = new Application();
 await app.init({ canvas: $('game') as HTMLCanvasElement, resizeTo: window, background: '#1a1612', antialias: false, resolution: Math.min(2, devicePixelRatio || 1), autoDensity: true, roundPixels: true });
+app.ticker.maxFPS = 60; // рендер и ввод не чаще 60 кадров: одинаковая картинка на 60/120/144 Гц, меньше греет телефон
 preloadSheets();
 const bgStage = new Container(); app.stage.addChild(bgStage); // параллакс-фон (сгенерированные слои), экранные координаты
 const stage = new Container(); app.stage.addChild(stage);
@@ -583,7 +584,8 @@ const itemTint = (kind: string) => (itemFrame(kind) ? 0xffffff : ITEM_TINT[kind]
 let acc = 0, last = performance.now(), frame = 0, prevX = 0, prevY = 0;
 app.ticker.add(() => {
   const now = performance.now();
-  acc += Math.min(0.1, (now - last) / 1000); last = now; frame++;
+  acc += Math.min(0.1, (now - last) / 1000); last = now;
+  frame = Math.floor(now * 0.06); // счётчик анимаций идёт в 60 Гц по часам, а не по кадрам: на 144 Гц мониторах бег/взмахи были в 2.4 раза быстрее
   if ((phase !== 'raid' && phase !== 'lobby') || !level) return;
   while (acc >= TICK) {
     acc -= TICK;
