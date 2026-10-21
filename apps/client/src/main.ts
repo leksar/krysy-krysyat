@@ -1,5 +1,6 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+import { stashHtml, cauldronHtml, shelfHtml, ratCardHtml, drinkModalHtml, revealHtml, stashTotalsText, type Ctx as UiCtx } from './alchemy-ui';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
 import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, AFFIXES, HEAVY_W, HEAVY_H, itemSize, stepRat, applyRatSnap, PHYS, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
 import { Touch } from './input';
@@ -146,7 +147,7 @@ function updateStations() {
   const total = nora ? Object.values(nora.stash).reduce((s, n) => s + n, 0) : 0;
   const sv = (id: StationId) => stationViews.get(id)!;
   // Склад — растущая куча посреди норы
-  { const v = sv('stash'); v.sp.visible = false; const g = v.extra; g.clear(); drawPile(g, nora?.stash ?? {}, (NORA_STATIONS[2].c1 - NORA_STATIONS[2].c0 + 1) * TILE); v.sub.text = total ? `${total} шт.` : 'пусто — неси добычу'; v.label.position.y = TILE - pileHeight(total) - 4; }
+  { const v = sv('stash'); v.sp.visible = false; const g = v.extra; g.clear(); drawPile(g, nora?.stash ?? {}, (NORA_STATIONS[2].c1 - NORA_STATIONS[2].c0 + 1) * TILE); v.sub.text = total ? stashTotalsText(nora?.stash ?? {}, true) : 'пусто — неси добычу'; v.label.position.y = TILE - pileHeight(total) - 4; }
   // стройплощадки: пока не построено — пунктир и табличка с ценой
   const site = (id: StationId, b: BuildInfo | undefined, w: number) => {
     const v = sv(id); const built = (b?.level ?? 0) > 0; v.extra.clear();
@@ -192,33 +193,40 @@ function openSheet(id: StationId) { audio.play('ui'); openStation = id; cauldron
 function closeSheet() { openStation = null; ratSheetId = null; $('sheet').classList.remove('open'); $('sheet').classList.remove('big'); }
 // ---------- карточка крысы (тап по крысе) ----------
 type Look = { fat: number; acid: number; alive: number; sweet: number; infect: number; loud: number; sticky: number; rot: number };
-function lookOf(id: string): Look { const m = profiles[id]?.mut ?? {}; return { fat: m['Жирное'] ?? 0, acid: m['Едкое'] ?? 0, alive: m['Живое'] ?? 0, sweet: m['Сладкое'] ?? 0, infect: m['Заразное'] ?? 0, loud: m['Шумное'] ?? 0, sticky: m['Липкое'] ?? 0, rot: m['Гнилое'] ?? 0 }; }
+function lookOf(id: string, over?: Record<string, number>): Look { const m = over ?? profiles[id]?.mut ?? {}; return { fat: m['Жирное'] ?? 0, acid: m['Едкое'] ?? 0, alive: m['Живое'] ?? 0, sweet: m['Сладкое'] ?? 0, infect: m['Заразное'] ?? 0, loud: m['Шумное'] ?? 0, sticky: m['Липкое'] ?? 0, rot: m['Гнилое'] ?? 0 }; }
 function openRatSheet(id: string) { audio.play('ui'); openStation = null; ratSheetId = id; $('sheet').classList.add('open'); $('sheet').classList.add('big'); renderRatSheet(id); }
 /** Портрет крысы: та же векторная крыса с её Мутациями, отрисованная в текстуру и увеличенная пиксель-в-пиксель */
-function ratPortrait(id: string, frame: number): string {
+function ratPortrait(id: string, frame: number, mutOver?: Record<string, number>): string {
   const c = new Container(); const g = new Graphics(); c.addChild(g);
   const v = { c, sp: new Sprite(Texture.EMPTY), extra: new Sprite(Texture.EMPTY), g, label: new Text({ text: '' }), bar: new Graphics(), anim: 0 } as View;
   g.position.set(14, 10);
-  drawRat(v, { facing: 1, grounded: true, biting: false, down: false, dead: false, vx: 0 }, colorOf(id), frame, lookOf(id));
+  drawRat(v, { facing: 1, grounded: true, biting: false, down: false, dead: false, vx: 0 }, colorOf(id), frame, lookOf(id, mutOver));
   const frameG = new Graphics(); frameG.rect(0, 0, 44, 26).fill({ color: 0x000000, alpha: 0 }); c.addChildAt(frameG, 0);
   const cv = app.renderer.extract.canvas({ target: c, resolution: 1, frame: new Rectangle(0, 0, 44, 26) }) as HTMLCanvasElement;
   c.destroy({ children: true });
   return cv.toDataURL();
 }
-function renderRatSheet(id: string) {
-  const pr = profiles[id]; const body = $('sheetBody');
-  if (!pr) { body.innerHTML = '<h2>Крыса</h2><div class="muted">нет данных</div>'; return; }
-  const snap = snaps[snaps.length - 1]?.rats.find((r) => r.id === id);
-  const mine = id === myId;
-  const maxGene = Math.max(100, ...PROPS.map((p) => pr.dna[p] ?? 0));
-  const muts = PROPS.filter((p) => pr.mut[p]).map((p) => `<div>🧬 <b>${MUTATION_NAMES[p]} ${pr.mut[p]}</b> <span class="muted">— ${MUTATION_DESC[p][Math.min(2, pr.mut[p]! - 1)]}</span></div>`).join('') || '<div class="muted">Мутаций нет</div>';
-  const dom = [...PROPS].sort((a, b) => (pr.dna[b] ?? 0) - (pr.dna[a] ?? 0)).slice(0, 2);
-  body.innerHTML = `<div class="ratcard"><div class="portrait"><img src="${ratPortrait(id, frame)}" alt="${esc(pr.name)}"/></div><div class="ratinfo"><h2>${mine ? 'Ты: ' : ''}${esc(pr.name)}</h2>
-    <div class="muted">Вылазок: ${pr.raids} · вынесено: ${pr.banked} · карманов: ${RULES.pockets + pr.pockets + (pr.mut['Жирное'] ?? 0)}${snap ? ` · HP ${snap.hp}/${snap.mh}${snap.dn ? ' · лежит' : ''}${snap.pk.length ? ` · несёт: ${snap.pk.map((k) => KINDS[k]?.name).join(', ')}` : ''}` : ''}</div>
-    <div style="margin:6px 0">${muts}</div>
-    <div class="muted" style="font-size:12px">Порода по ДНК: <b>${dom.join(' + ')}</b> — такие Мутации у неё сильнее</div>
-    <div class="dna" style="margin-top:4px">${PROPS.map((p) => `<span>${p}</span><i><b style="width:${((pr.dna[p] ?? 0) / maxGene) * 100}%"></b></i><span class="muted">${pr.dna[p] ?? 0}</span>`).join('')}</div></div></div>`;
+/** Общий контекст для модуля алхимии (alchemy-ui.ts) */
+let brewingKinds: string[] | null = null;
+function uiCtx(): UiCtx {
+  return {
+    nora: nora ?? { stash: {}, potions: [], cauldron: 0, builds: {}, log: [] }, me: meInfo as UiCtx['me'], myId, host: lobby?.hostId === myId, pour: lobby?.pour ?? [],
+    profiles: profiles as UiCtx['profiles'], cauldron, brewing: brewingKinds,
+    portrait: (id, mut) => ratPortrait(id, frame, mut), send: (m) => net.send(m), play: (s) => audio.play(s), rerender: () => { if (openStation) renderSheet(); else if (ratSheetId) renderRatSheet(ratSheetId); },
+    esc, costHtml,
+  };
 }
+function renderRatSheet(id: string) {
+  const body = $('sheetBody');
+  const snap = snaps[snaps.length - 1]?.rats.find((r) => r.id === id);
+  const snapLine = snap ? ` · HP ${snap.hp}/${snap.mh}${snap.dn ? ' · лежит' : ''}${snap.pk.length ? ` · несёт: ${snap.pk.map((k) => KINDS[k]?.name).join(', ')}` : ''}` : '';
+  body.innerHTML = ratCardHtml(uiCtx(), id, snapLine);
+}
+function openModal(html: string) { $('modalBody').innerHTML = html; $('modal').classList.add('on'); }
+function closeModal() { $('modal').classList.remove('on'); }
+$('modal').onclick = (e) => { if (e.target === $('modal')) closeModal(); };
+$('reveal').onclick = () => $('reveal').classList.remove('on');
+function showReveal(fam: Prop | null, t: number) { $('reveal').innerHTML = revealHtml(uiCtx(), fam, t); $('reveal').classList.add('on'); }
 /** Тап по крысе: короткое касание без сдвига над крысой открывает карточку (и в Норе, и на Вылазке) */
 let tapStart: { x: number; y: number; t: number; id: number } | null = null;
 document.addEventListener('pointerdown', (e) => { const t = e.target as HTMLElement; if (t.id === 'game' || t === document.body) tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; });
@@ -235,11 +243,9 @@ document.addEventListener('pointerup', (e) => {
   if (best) openRatSheet(best);
 });
 $('sheetClose').onclick = closeSheet;
-(window as any).krysy = { openRat: (id?: string) => openRatSheet(id ?? myId), me: () => myId }; // отладка из консоли
+(window as any).krysy = { openRat: (id?: string) => openRatSheet(id ?? myId), me: () => myId, sheet: (id: StationId) => openSheet(id), pos: () => (me ? { x: me.x, y: me.y, st: stationHere() } : null), reveal: (f: Prop | null, t: number) => showReveal(f, t) }; // отладка из консоли
 $('mute').textContent = audio.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { audio.unlock(); $('mute').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
-function chip(kind: string, count?: number, extra = '') { const k = KINDS[kind]; return `<span class="chip ${k.type}" data-kind="${kind}" ${extra}><img src="${itemIcon(kind)}"/>${k.name}${count !== undefined ? ` <b>×${count}</b>` : ''}</span>`; }
-function propsHtml(p: Potion) { const d = dominant(p); return `<span class="props">${PROPS.filter((x) => p.props[x]).map((x) => `<span${x === d ? ' style="outline:1px solid #e8d9c0"' : ''}>${x} ${p.props[x]}</span>`).join('')}</span>`; }
 const TYPE_RU: Record<string, string> = { food: 'Еда', trash: 'Мусор', secr: 'Выделения', organ: 'Органы' };
 function costHtml(cost: Record<string, number> | null) { return cost ? Object.entries(cost).filter(([, n]) => n).map(([t, n]) => `${TYPE_RU[t]} ×${n}`).join(', ') : 'максимум'; }
 function renderSheet() {
@@ -251,28 +257,10 @@ function renderSheet() {
   const stashEntries = Object.entries(nora.stash).filter(([, n]) => n > 0).sort((a, b) => KINDS[a[0]].type.localeCompare(KINDS[b[0]].type));
   switch (openStation) {
     case 'stash':
-      html += stashEntries.length ? `<div>${stashEntries.map(([k, n]) => chip(k, n)).join('')}</div><div class="muted">Неси Ингредиенты в Котёл — он рядом.</div>` : '<div class="muted">Пусто. Всё, что вынесете с Вылазки через Выход, ляжет сюда.</div>';
+      html += stashHtml(uiCtx()) + (stashEntries.length ? '<div class="muted" style="margin-top:6px">Неси Ингредиенты в Котёл — он слева. Точки на чипах — Свойства, которые пойдут в Зелье.</div>' : '');
       break;
-    case 'cauldron': {
-      if (!(nora.builds.cauldron?.level > 0)) { const b = nora.builds.cauldron; html += `<div class="build"><b>Стройплощадка: Котёл</b> <span class="muted">— ${b.desc}. Цена: ${costHtml(b.cost)}</span> <button class="small primary" data-build="cauldron">Построить</button></div><div class="muted">Склад: ${stashEntries.map(([k, n]) => `${KINDS[k].name} ×${n}`).join(', ') || 'пусто'}</div>`; break; }
-      let slots = ''; for (let i = 0; i < nora.cauldron; i++) slots += `<span class="slot" data-i="${i}">${cauldron[i] ? `<img src="${itemIcon(cauldron[i])}"/>` : ''}</span>`;
-      const preview = cauldron.length >= 2 ? propsHtml({ id: 0, from: cauldron, props: cauldron.reduce((acc: Record<string, number>, k) => { for (const pr of (ITEM_PROPS_LOCAL[k] ?? [])) acc[pr] = (acc[pr] ?? 0) + 1; return acc; }, {}) as Potion['props'] }) : '';
-      const d = cauldron.length >= 2 ? dominant({ id: 0, from: cauldron, props: cauldron.reduce((acc: Record<string, number>, k) => { for (const pr of (ITEM_PROPS_LOCAL[k] ?? [])) acc[pr] = (acc[pr] ?? 0) + 1; return acc; }, {}) as Potion['props'] }) : null;
-      html += `<div class="row">${slots}<button id="brewBtn" class="primary" ${cauldron.length < 2 ? 'disabled' : ''}>Сварить</button></div>`;
-      html += preview ? `<div>Получится: ${preview}${d ? ` <span class="muted">· выпить → ${MUTATION_NAMES[d]}</span>` : ''}</div>` : '<div class="muted">Положи 2–' + nora.cauldron + ' Ингредиента со Склада:</div>';
-      html += `<div>${stashEntries.map(([k, n]) => chip(k, n - cauldron.filter((c) => c === k).length)).join('') || '<span class="muted">Склад пуст</span>'}</div>`;
-      const cb = nora.builds.cauldron; html += `<div class="build" style="margin-top:8px"><b>Улучшить Котёл</b> ${cb.level}/${cb.max} <span class="muted">— ${cb.desc}. Цена: ${costHtml(cb.cost)}</span> ${cb.cost ? `<button class="small" data-build="cauldron">Построить</button>` : ''}</div>`;
-      break;
-    }
-    case 'shelf':
-      if (!(nora.builds.shelf?.level > 0)) { const b = nora.builds.shelf; html += `<div class="build"><b>Стройплощадка: Полка Зелий</b> <span class="muted">— ${b.desc}. Цена: ${costHtml(b.cost)}${b.requires ? ` · сначала: ${b.requires}` : ''}</span> ${b.requires ? '' : '<button class="small primary" data-build="shelf">Построить</button>'}</div>`; break; }
-      html += nora.potions.length ? nora.potions.map((p) => `<div class="potion ${lobby?.pour.includes(p.id) ? 'pour' : ''}"><b>Зелье #${p.id}</b> ${propsHtml(p)}<div class="muted" style="font-size:11px">из: ${p.from.map((k) => KINDS[k].name).join(', ')}${dominant(p) ? ` · выпить → ${MUTATION_NAMES[dominant(p)!]} · вылить → ${PROPS.filter((x) => p.props[x]).map((x) => MODIFIER_NAMES[x]).join(', ')}` : ''}</div><div class="row"><button class="small" data-drink="${p.id}">Выпить</button>${host ? `<button class="small" data-pour="${p.id}">${lobby?.pour.includes(p.id) ? 'Снять со стола' : 'На стол — вылить на карту'}</button>` : ''}</div></div>`).join('') : '<div class="muted">Полка пуста — свари Зелье в Котле.</div>';
-      if (meInfo) {
-        const muts = PROPS.filter((p) => meInfo!.mut[p]).map((p) => `<span class="props"><span>🧬 ${MUTATION_NAMES[p]} ${meInfo!.mut[p]}</span></span>`).join(' ');
-        const maxGene = Math.max(100, ...PROPS.map((p) => meInfo!.dna[p]));
-        html += `<details style="margin-top:6px"><summary class="muted">Моя крыса: ${muts || 'без Мутаций'} · ДНК</summary><div class="dna" style="margin-top:4px">${PROPS.map((p) => `<span>${p}</span><i><b style="width:${(meInfo!.dna[p] / maxGene) * 100}%"></b></i><span class="muted">${meInfo!.dna[p]}</span>`).join('')}</div></details>`;
-      }
-      break;
+    case 'cauldron': html += cauldronHtml(uiCtx()); break;
+    case 'shelf': html += shelfHtml(uiCtx()); break;
     case 'table':
       html += `<div class="row">${lobby!.maps.map((x) => { const b = nora!.builds[x.id]; return x.locked
         ? `<div class="map locked"><b>🔒 ${x.name}</b><br/><span class="muted">${b?.desc ?? ''}. Цена: ${costHtml(b?.cost ?? null)}${b?.requires ? ` · сначала: ${b.requires}` : ''}</span>${b && !b.requires && b.cost ? `<br/><button class="small primary" data-build="${x.id}">Построить</button>` : ''}</div>`
@@ -291,12 +279,21 @@ function renderSheet() {
   }
   html += `<div class="log" style="margin-top:8px">${nora.log.slice(-4).join('\n')}</div>`;
   body.innerHTML = html;
-  for (const el of body.querySelectorAll<HTMLElement>('.chip')) el.onclick = () => { if (openStation !== 'cauldron') return; const k = el.dataset.kind!; const have = nora!.stash[k] - cauldron.filter((c) => c === k).length; if (have > 0 && cauldron.length < nora!.cauldron) { cauldron.push(k); renderSheet(); } };
-  for (const el of body.querySelectorAll<HTMLElement>('.slot')) el.onclick = () => { const i = Number(el.dataset.i); if (cauldron[i]) { cauldron.splice(i, 1); renderSheet(); } };
-  const brewBtn = body.querySelector<HTMLElement>('#brewBtn'); if (brewBtn) brewBtn.onclick = () => { if (cauldron.length >= 2) { net.send({ t: 'brew', kinds: cauldron }); cauldron = []; audio.play('brew'); } };
+  for (const el of body.querySelectorAll<HTMLElement>('.chip[data-pick]')) el.onclick = () => { if (openStation !== 'cauldron' || brewingKinds) return; const k = el.dataset.kind!; const have = nora!.stash[k] - cauldron.filter((c) => c === k).length; if (have > 0 && cauldron.length < nora!.cauldron) { cauldron.push(k); audio.play('ui'); renderSheet(); } };
+  for (const el of body.querySelectorAll<HTMLElement>('.slot')) el.onclick = () => { if (brewingKinds) return; const i = Number(el.dataset.i); if (cauldron[i]) { cauldron.splice(i, 1); renderSheet(); } };
+  const clearBtn = body.querySelector<HTMLElement>('#clearBtn'); if (clearBtn) clearBtn.onclick = () => { cauldron = []; renderSheet(); };
+  const brewBtn = body.querySelector<HTMLElement>('#brewBtn'); if (brewBtn) brewBtn.onclick = () => {
+    if (cauldron.length < 2 || brewingKinds) return;
+    brewingKinds = cauldron.slice(); cauldron = []; net.send({ t: 'brew', kinds: brewingKinds }); audio.play('brew'); renderSheet();
+    setTimeout(() => { brewingKinds = null; if (openStation === 'cauldron') renderSheet(); toast('Зелье готово — стоит на Полке'); audio.play('ui'); }, 1500);
+  };
   for (const el of body.querySelectorAll<HTMLElement>('[data-build]')) el.onclick = () => { net.send({ t: 'build', what: el.dataset.build }); audio.play('build'); };
   for (const el of body.querySelectorAll<HTMLElement>('[data-pour]')) el.onclick = () => net.send({ t: 'pour', id: Number(el.dataset.pour) });
-  for (const el of body.querySelectorAll<HTMLElement>('[data-drink]')) el.onclick = () => { const p = nora!.potions.find((x) => x.id === Number(el.dataset.drink))!; const d = dominant(p); if (confirm(`Выпить Зелье #${p.id}?${d ? ` Мутация «${MUTATION_NAMES[d]}» (${MUTATION_DESC[d][Math.min(2, (meInfo?.mut[d] ?? 0))]}). ` : ' '}Это навсегда.`)) net.send({ t: 'drink', id: p.id }); };
+  for (const el of body.querySelectorAll<HTMLElement>('[data-drink]')) el.onclick = () => {
+    const p = nora!.potions.find((x) => x.id === Number(el.dataset.drink)); if (!p) return;
+    audio.play('ui'); openModal(drinkModalHtml(uiCtx(), p));
+    $('dmNo').onclick = closeModal; $('dmYes').onclick = () => { closeModal(); net.send({ t: 'drink', id: p.id }); };
+  };
   for (const el of body.querySelectorAll<HTMLElement>('.map[data-id]')) el.onclick = () => net.send({ t: 'setMap', map: el.dataset.id });
   const startBtn = body.querySelector<HTMLElement>('#startBtn'); if (startBtn) startBtn.onclick = () => net.send({ t: 'start' });
 }
@@ -332,7 +329,7 @@ net.on('results', (m) => showResults(m));
 net.on('nora', (m) => { nora = m; updateStations(); if (openStation) renderSheet(); });
 net.on('me', (m) => { meInfo = m; updateStations(); if (openStation) renderSheet(); });
 net.on('err', (t) => toast(t));
-net.on('drank', (fam, tier) => { audio.play('drank'); toast(fam ? `Мутация: ${MUTATION_NAMES[fam as Prop]} ${tier}` : 'Зелье без Доминанты — только ДНК'); });
+net.on('drank', (fam, tier) => { audio.play('drank'); setTimeout(() => showReveal((fam as Prop) || null, tier), 150); });
 
 net.on('snapshot', (s) => {
   snaps.push(s); while (snaps.length > 30) snaps.shift();
@@ -362,7 +359,6 @@ function reconcile(rs: RatSnap) {
 }
 
 // ---------- итоги ----------
-import { ITEM_PROPS as ITEM_PROPS_LOCAL } from '@krysy/sim';
 function showResults(m: ResultsMsg) {
   phase = 'results'; setControls(false); audio.setMusic('none'); document.body.classList.remove('inraid'); $('weather').className = '';
   const rows = m.rows.map((r) => `<tr><td>${r.exited ? '🏁' : '💀'} ${esc(r.name)}</td><td>${r.exited ? 'вынесла' : 'не вернулась'}</td><td>${r.loot.map((k) => `<img src="${itemIcon(k)}" title="${KINDS[k]?.name ?? k}" style="width:16px;height:16px;vertical-align:middle"/>`).join(' ') || '—'}</td></tr>`).join('');
