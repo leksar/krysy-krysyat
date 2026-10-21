@@ -1,7 +1,7 @@
 // Сеть: инпуты пачкой (последние 5 неподтверждённых), снапшоты, события, лобби.
 import type { Input, Snapshot, Event, RaidMods, RatMods } from '@krysy/sim';
 
-export type LobbyMsg = { code: string; phase: string; map: string; hostId: string | null; pour: number[]; maps: { id: string; name: string; desc: string }[]; players: { id: string; name: string }[] };
+export type LobbyMsg = { code: string; phase: string; map: string; hostId: string | null; pour: number[]; maps: { id: string; name: string; desc: string; locked?: boolean }[]; players: { id: string; name: string }[] };
 export type ResultsMsg = { rows: { id: string; name: string; exited: boolean; dead: boolean; loot: string[] }[]; panic: number; map: string };
 export type Handlers = {
   welcome: (id: string) => void;

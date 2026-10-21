@@ -90,9 +90,9 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
   while (c < cols - 1) {
     const w = 6 + g.ri(9);
     const end = Math.min(cols - 2, c + w - 1);
-    if (c > 12 && end < cols - 14 && h === 0 && g.rand() < (theme === 'roof' ? 0.35 : 0.2)) {
-      // яма шириной 2–3 (на крыше — провал между домами с карнизом внизу)
-      const pw = 2 + g.ri(2);
+    if (c > 26 && end < cols - 14 && h === 0 && g.rand() < (theme === 'roof' ? 0.25 : 0.18)) {
+      // яма шириной 2 (на крыше — провал между домами с карнизами внизу); не раньше 26-й колонки
+      const pw = 2;
       for (let x = c; x < c + pw && x < cols - 2; x++) { groundTop[x] = ROWS - 2; pits.push(x); }
       c += pw; continue;
     }
@@ -103,7 +103,7 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
   }
   for (let x = 1; x < cols - 1; x++) g.box(groundTop[x] + 1, ROWS - 2, x, x);
   // карнизы в ямах, чтобы падение было дорогой, а не смертью: ступенька у одного края
-  for (const x of pits) if (!pits.includes(x - 1)) g.ledge(ROWS - 4, x, x);
+  for (const x of pits) { if (!pits.includes(x - 1)) g.ledge(ROWS - 4, x, x); if (!pits.includes(x + 1)) g.ledge(ROWS - 6, x, x); } // карнизы с обеих сторон — выбраться можно в любую сторону
 
   // --- структуры по теме ---
   const structs: ((anchorC: number) => void)[] = theme === 'yard' ? [
@@ -113,10 +113,12 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
   ] : [
     (a) => hut(g, a, groundTop[a]), (a) => antenna(g, a, groundTop[a]), (a) => ventbox(g, a, groundTop[a]), (a) => tower(g, a, groundTop[a], 'escape'), (a) => ventbox(g, a, groundTop[a]),
   ];
-  for (let x = 8; x < cols - 10; x += 9 + g.ri(8)) { if (pits.includes(x) || pits.includes(x + 3)) continue; g.pick(structs)(x); }
+  // стартовая зона (до 18-й колонки) свободна: первая структура не должна быть стеной у спавна
+  const soft: ((anchorC: number) => void)[] = theme === 'yard' ? [(a) => bench(g, a, groundTop[a]), (a) => bins(g, a, groundTop[a])] : theme === 'kitchen' ? [(a) => table(g, a, groundTop[a])] : [(a) => ventbox(g, a, groundTop[a])];
+  for (let x = 18; x < cols - 10; x += 9 + g.ri(8)) { if (pits.includes(x) || pits.includes(x + 3)) continue; (x < 36 ? g.pick(soft) : g.pick(structs))(x); }
   // случайные полки в воздухе (крыша — верёвки, кухня — полки)
   const airN = theme === 'kitchen' ? 14 : 10;
-  for (let i = 0; i < airN; i++) { const r = 4 + g.ri(G0 - 8), cc = 4 + g.ri(cols - 12), w = 3 + g.ri(5); if (!g.solid(r, cc) && !g.solid(r - 1, cc)) g.ledge(r, cc, Math.min(cols - 3, cc + w)); }
+  for (let i = 0; i < airN; i++) { const r = 4 + g.ri(G0 - 8), cc = 14 + g.ri(cols - 22), w = 3 + g.ri(5); if (!g.solid(r, cc) && !g.solid(r - 1, cc)) g.ledge(r, cc, Math.min(cols - 3, cc + w)); }
   // подвал во Дворе: коридор под землёй с дырами
   if (theme === 'yard') {
     for (let x = 1; x < cols - 1; x++) { g.set(ROWS - 3, x, 0); g.set(ROWS - 2, x, 0); }
@@ -193,7 +195,7 @@ function garage(g: G, a: number, top: number) {
 }
 function tower(g: G, a: number, top: number, kind: 'balcony' | 'lift' | 'escape') {
   const h = 12 + g.ri(8), w = kind === 'lift' ? 1 : 2;
-  g.box(top - h + 1, top, a, a + w);
+  g.box(top - h + 1, top - 2, a, a + w); // внизу — арка в 2 тайла: башня не перегораживает двор
   let k = 0;
   for (let r = top - 2; r > top - h; r -= 2, k++) { const o = k % 2 ? 2 : 0; g.ledge(r, a + w + 1 + o, a + w + 3 + o); g.ledge(r, a - 3 - o, a - 1 - o); }
   g.ledge(top - h, a - 1, a + w + 1);

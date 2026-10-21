@@ -200,7 +200,9 @@ function renderSheet() {
       }
       break;
     case 'table':
-      html += host ? `<div class="row">${lobby!.maps.map((x) => `<div class="map ${x.id === lobby!.map ? 'sel' : ''}" data-id="${x.id}"><b>${x.name}</b><br/><span class="muted">${x.desc}</span></div>`).join('')}</div>` : `<div>Карта: <b>${MAPS[lobby!.map]?.name}</b> — выбирает хозяин (👑).</div>`;
+      html += `<div class="row">${lobby!.maps.map((x) => { const b = nora!.builds[x.id]; return x.locked
+        ? `<div class="map locked"><b>🔒 ${x.name}</b><br/><span class="muted">${b?.desc ?? ''}. Цена: ${costHtml(b?.cost ?? null)}${b?.requires ? ` · сначала: ${b.requires}` : ''}</span>${b && !b.requires && b.cost ? `<br/><button class="small primary" data-build="${x.id}">Построить</button>` : ''}</div>`
+        : `<div class="map ${x.id === lobby!.map ? 'sel' : ''} ${host ? '' : 'locked'}" data-id="${x.id}"><b>${x.name}</b><br/><span class="muted">${x.desc}</span></div>`; }).join('')}</div>${host ? '' : '<div class="muted">Карту выбирает хозяин (👑).</div>'}`;
       html += `<div class="muted">${lobby?.pour.length ? `На карту выльем: ${lobby.pour.map((i) => '#' + i).join(', ')} → ${raidPreview()}` : 'Зелья на карту кладутся с Полки.'}</div><div class="muted">Когда готовы — все к Туннелю справа.</div>`;
       break;
     case 'rack': {
@@ -221,7 +223,7 @@ function renderSheet() {
   for (const el of body.querySelectorAll<HTMLElement>('[data-build]')) el.onclick = () => { net.send({ t: 'build', what: el.dataset.build }); audio.play('build'); };
   for (const el of body.querySelectorAll<HTMLElement>('[data-pour]')) el.onclick = () => net.send({ t: 'pour', id: Number(el.dataset.pour) });
   for (const el of body.querySelectorAll<HTMLElement>('[data-drink]')) el.onclick = () => { const p = nora!.potions.find((x) => x.id === Number(el.dataset.drink))!; const d = dominant(p); if (confirm(`Выпить Зелье #${p.id}?${d ? ` Мутация «${MUTATION_NAMES[d]}» (${MUTATION_DESC[d][Math.min(2, (meInfo?.mut[d] ?? 0))]}). ` : ' '}Это навсегда.`)) net.send({ t: 'drink', id: p.id }); };
-  for (const el of body.querySelectorAll<HTMLElement>('.map')) el.onclick = () => net.send({ t: 'setMap', map: el.dataset.id });
+  for (const el of body.querySelectorAll<HTMLElement>('.map[data-id]')) el.onclick = () => net.send({ t: 'setMap', map: el.dataset.id });
   const startBtn = body.querySelector<HTMLElement>('#startBtn'); if (startBtn) startBtn.onclick = () => net.send({ t: 'start' });
 }
 function raidPreview() { if (!nora || !lobby) return ''; const ps = nora.potions.filter((p) => lobby!.pour.includes(p.id)); const names = new Set<string>(); for (const p of ps) for (const pr of PROPS) if (p.props[pr]) names.add(MODIFIER_NAMES[pr]); return [...names].join(', '); }

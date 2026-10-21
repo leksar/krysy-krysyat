@@ -45,13 +45,13 @@ const send = (ws: WebSocket, o: unknown) => { if (ws.readyState === ws.OPEN) ws.
 const broadcast = (room: Room, o: unknown) => { const s = JSON.stringify(o); for (const p of room.peers.values()) if (p.ws.readyState === p.ws.OPEN) p.ws.send(s); };
 function lobbyMsg(room: Room) {
   room.pour = room.pour.filter((id) => store.nora.potions.some((p) => p.id === id));
-  return { t: 'lobby', code: room.code, phase: room.phase, map: room.map, hostId: room.hostId, pour: room.pour, maps: Object.values(MAPS).map((m) => ({ id: m.id, name: m.name, desc: m.desc })), players: [...room.peers.values()].map((p) => ({ id: p.id, name: p.name })) };
+  return { t: 'lobby', code: room.code, phase: room.phase, map: room.map, hostId: room.hostId, pour: room.pour, maps: Object.values(MAPS).map((m) => ({ id: m.id, name: m.name, desc: m.desc, locked: m.id !== 'yard' && !store.built(m.id as keyof Builds) })), players: [...room.peers.values()].map((p) => ({ id: p.id, name: p.name })) };
 }
 // Нора общая на всю Стаю — рассылаем всем подключённым, своё («me») — каждому отдельно
 function noraMsg() {
   const n = store.nora;
   const builds: Record<string, unknown> = {};
-  for (const k of ['cauldron', 'shelf', 'rack'] as (keyof Builds)[]) { const b = BUILD_INFO[k]; const lvl = n.builds[k]; builds[k] = { name: b.name, desc: b.desc(lvl), level: lvl, max: b.max, cost: lvl < b.max ? b.cost(lvl) : null, requires: b.requires && !store.built(b.requires) ? BUILD_INFO[b.requires].name : null }; }
+  for (const k of ['cauldron', 'shelf', 'rack', 'kitchen', 'roof'] as (keyof Builds)[]) { const b = BUILD_INFO[k]; const lvl = n.builds[k]; builds[k] = { name: b.name, desc: b.desc(lvl), level: lvl, max: b.max, cost: lvl < b.max ? b.cost(lvl) : null, requires: b.requires && !store.built(b.requires) ? BUILD_INFO[b.requires].name : null }; }
   return { t: 'nora', stash: n.stash, potions: n.potions, cauldron: store.cauldronSize(), builds, log: n.log.slice(-8) };
 }
 function meMsg(p: Profile) { const b = BUILD_INFO.pockets; return { t: 'me', name: p.name, code: p.code, dna: p.dna, mut: p.mut, raids: p.raids, banked: p.banked, mods: (() => { const m = ratMods(p.dna, p.mut); m.pockets += p.pockets; return m; })(), pockets: { level: p.pockets, max: b.max, cost: p.pockets < b.max ? b.cost(p.pockets) : null, desc: b.desc(p.pockets) } }; }
@@ -95,7 +95,7 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'ping': send(ws, { t: 'pong', c: m.c }); break;
-      case 'setMap': if (peer.id === room.hostId && room.phase === 'lobby' && MAPS[m.map] && at(peer, 'table')) { room.map = m.map; broadcast(room, lobbyMsg(room)); } break;
+      case 'setMap': if (peer.id === room.hostId && room.phase === 'lobby' && MAPS[m.map] && at(peer, 'table') && (m.map === 'yard' || store.built(m.map as keyof Builds))) { room.map = m.map; broadcast(room, lobbyMsg(room)); } break;
       case 'start': if (peer.id === room.hostId && room.phase === 'lobby' && at(peer, 'tunnel')) startRaid(room); break;
       case 'back': if (room.phase === 'results') toLobby(room); break;
       // --- Нора ---
@@ -124,7 +124,8 @@ wss.on('connection', (ws, req) => {
       }
       case 'build': {
         const k = m.what as keyof Builds; const b = BUILD_INFO[k]; if (!b) break;
-        if (!at(peer, k === 'pockets' ? 'rack' : k)) { send(ws, { t: 'err', text: 'Подойди к стройплощадке' }); break; }
+        const site = k === 'pockets' ? 'rack' : k === 'kitchen' || k === 'roof' ? 'table' : k;
+        if (!at(peer, site)) { send(ws, { t: 'err', text: 'Подойди к стройплощадке' }); break; }
         if (b.requires && !store.built(b.requires)) { send(ws, { t: 'err', text: `Сначала построй: ${BUILD_INFO[b.requires].name}` }); break; }
         if (k === 'pockets') { // личная постройка крысы за общие Ингредиенты
           const lvl = peer.profile.pockets; if (lvl >= b.max) break;
@@ -133,7 +134,9 @@ wss.on('connection', (ws, req) => {
         }
         const lvl = store.nora.builds[k]; if (lvl >= b.max) break;
         if (!store.payByType(b.cost(lvl))) { send(ws, { t: 'err', text: 'Не хватает Ингредиентов' }); break; }
-        store.nora.builds[k] = lvl + 1; store.log(`${peer.name} построила: ${b.name} ${lvl + 1}`); store.save(); pushNora(); break;
+        store.nora.builds[k] = lvl + 1; store.log(`${peer.name} построила: ${b.name}${b.max > 1 ? ' ' + (lvl + 1) : ''}`); store.save(); pushNora();
+        if (k === 'kitchen' || k === 'roof') for (const r of rooms.values()) broadcast(r, lobbyMsg(r));
+        break;
       }
       case 'abort': if (peer.id === room.hostId && room.phase === 'raid' && room.world) { console.log(`✖ ${room.code}: aborted by host`); room.world.over = true; } break;
     }
