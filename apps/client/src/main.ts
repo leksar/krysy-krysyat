@@ -1,7 +1,7 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
-import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
+import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, stepRat, applyRatSnap, PHYS, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
 import { Touch } from './input';
 import { Net, type LobbyMsg, type ResultsMsg } from './net';
 import { Audio, falloff } from './audio';
@@ -105,8 +105,8 @@ function buildStations() {
     const c = new Container();
     const sp = new Sprite(tex('st_' + st.id, STATION_TEX[st.id])); sp.anchor.set(0.5, 1);
     const w = (st.c1 - st.c0 + 1) * TILE; sp.position.set(w / 2, TILE);
-    const label = new Text({ text: st.name, style: { fontFamily: 'monospace', fontSize: 8, fill: 0xe8d9c0, fontWeight: '700' } }); label.anchor.set(0.5, 1); label.position.set(w / 2, TILE - sp.height - 3);
-    const sub = new Text({ text: '', style: { fontFamily: 'monospace', fontSize: 7, fill: 0xbfae94 } }); sub.anchor.set(0.5, 0); sub.position.set(w / 2, TILE + 1);
+    const label = new Text({ text: st.name, resolution: 4, style: { fontFamily: 'monospace', fontSize: 8, fill: 0xe8d9c0, fontWeight: '700' } }); label.anchor.set(0.5, 1); label.position.set(w / 2, TILE - sp.height - 3);
+    const sub = new Text({ text: '', resolution: 4, style: { fontFamily: 'monospace', fontSize: 7, fill: 0xbfae94 } }); sub.anchor.set(0.5, 0); sub.position.set(w / 2, TILE + 1);
     const extra = new Graphics();
     c.addChild(extra, sp, label, sub); c.position.set(st.c0 * TILE, st.row * TILE); marks.addChild(c);
     stationViews.set(st.id, { c, label, sub, sp, extra });
@@ -359,14 +359,14 @@ function buildLevel(l: Level, themeId: string) {
   views.clear();
 }
 
-type View = { c: Container; sp: Sprite; extra: Sprite; g: Graphics; label: Text; bar: Graphics; anim: number };
+type View = { c: Container; sp: Sprite; extra: Sprite; g: Graphics; label: Text; bar: Graphics; anim: number; biteOn?: boolean };
 const views = new Map<string, View>();
 function view(key: string, t?: Texture): View {
   let v = views.get(key);
   if (!v) {
     const c = new Container(), sp = new Sprite(t ?? Texture.EMPTY), extra = new Sprite(Texture.EMPTY), g = new Graphics();
     extra.visible = false;
-    const label = new Text({ text: '', style: { fontFamily: 'monospace', fontSize: 7, fill: 0xe8d9c0, fontWeight: '700' } }); label.anchor.set(0.5, 1);
+    const label = new Text({ text: '', resolution: 4, style: { fontFamily: 'monospace', fontSize: 7, fill: 0xe8d9c0, fontWeight: '700' } }); label.anchor.set(0.5, 1);
     const bar = new Graphics();
     c.addChild(extra, sp, g, label, bar); ents.addChild(c);
     v = { c, sp, extra, g, label, bar, anim: 0 }; views.set(key, v);
@@ -376,7 +376,7 @@ function view(key: string, t?: Texture): View {
 const COLORS = [0x8f8378, 0x6f8fa3, 0xa38f6f, 0x7fa36f, 0xa36f9a, 0x6fa39b];
 const colorOf = (id: string) => COLORS[(Number(id) - 1 + 600) % COLORS.length];
 // крыса — векторная, как в прототипах (пользователю она нравится больше спрайта)
-function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolean; down: boolean; dead: boolean; vx: number }, color: number, t: number) {
+function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolean; down: boolean; dead: boolean; vx: number; biteT?: number }, color: number, t: number) {
   const b = v.g; b.clear(); v.sp.visible = false; v.extra.visible = false;
   if (r.dead) { b.rect(0, 6, 14, 4).fill(0x333333); return; }
   if (r.down) { b.ellipse(7, 7, 8, 3).fill(color); b.circle(r.facing > 0 ? 13 : 1, 7, 2.5).fill(color + 0x0d0c0c); b.rect(5, 2, 1, 1).fill(0xffffff); return; }
@@ -389,14 +389,32 @@ function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolea
   b.circle(r.facing > 0 ? 11 : 3, 1.5, 1.6).fill(0xd9a5a5);
   b.circle(r.facing > 0 ? 13.5 : 0.5, 3, 0.7).fill(0x111111);
   if (r.grounded && Math.abs(r.vx) > 10) { const ph = Math.floor(t / 5) % 2; b.rect(2 + ph * 2, 9, 2, 1).fill(color + 0x0d0c0c); b.rect(9 - ph * 2, 9, 2, 1).fill(color + 0x0d0c0c); }
-  if (r.biting) { const cx = r.facing > 0 ? 19 : -5; const a0 = r.facing > 0 ? -1 : Math.PI - 1; b.arc(cx, 4, 6, a0, a0 + 2).stroke({ width: 2, color: 0xfff1b0 }); }
+  if (r.biting) {
+    // анимация укуса: вариант выбирается на старте укуса (v.anim), прогресс p 0→1 за время укуса
+    if (!v.biteOn) { v.biteOn = true; v.anim = Math.floor(Math.random() * 3); }
+    const p = Math.min(1, Math.max(0, 1 - (r.biteT ?? 0))), f = r.facing, cx = f > 0 ? 17 : -3, cy = 4;
+    const cols = [0xfff1b0, 0xffd27a, 0xffffff];
+    if (v.anim === 0) { // дуга-взмах с зубами на кончике
+      const rad = 4 + p * 6, a0 = (f > 0 ? -1.2 : Math.PI - 1.2) + p * 0.6, a1 = a0 + 1.6 + p * 0.6;
+      b.arc(cx, cy, rad, a0, a1).stroke({ width: 2.5 - p, color: cols[0], alpha: 1 - p * 0.7 });
+      const tx = cx + Math.cos(a1) * rad, ty = cy + Math.sin(a1) * rad; b.poly([tx, ty, tx + f * 3, ty - 2, tx + f * 1, ty + 2]).fill({ color: 0xffffff, alpha: 1 - p });
+    } else if (v.anim === 1) { // двойной хрум: верхняя и нижняя челюсти смыкаются
+      const gap = (1 - p) * 6 + 1, L = 7 + p * 3;
+      b.moveTo(cx, cy - gap).lineTo(cx + f * L, cy - gap - 2).lineTo(cx + f * (L - 2), cy - gap + 1).stroke({ width: 2, color: cols[1], alpha: 1 - p * 0.5 });
+      b.moveTo(cx, cy + gap).lineTo(cx + f * L, cy + gap + 2).lineTo(cx + f * (L - 2), cy + gap - 1).stroke({ width: 2, color: cols[1], alpha: 1 - p * 0.5 });
+      if (p > 0.6) for (let i = 0; i < 3; i++) b.rect(cx + f * (3 + i * 3), cy - 1 + (i % 2) * 2, 1.5, 1.5).fill({ color: 0xffffff, alpha: (1 - p) * 2 });
+    } else { // искры из точки укуса
+      const n = 6, len = Math.sin(p * Math.PI) * 7;
+      for (let i = 0; i < n; i++) { const ang = (f > 0 ? -0.9 : Math.PI - 0.9) + (i / (n - 1)) * 1.8; const sx = cx + f * 2, sy = cy; b.moveTo(sx + Math.cos(ang) * 2, sy + Math.sin(ang) * 2).lineTo(sx + Math.cos(ang) * (2 + len), sy + Math.sin(ang) * (2 + len)).stroke({ width: 1.5, color: cols[i % 3], alpha: 1 - p }); }
+    }
+  } else v.biteOn = false;
 }
 const LABEL_STYLE: Record<string, { text: string; fill: number; size: number }> = {
   windup: { text: '!!', fill: 0xff4040, size: 10 }, panic: { text: '!', fill: 0xffd040, size: 9 }, chase: { text: '>', fill: 0xff8040, size: 9 }, sleep: { text: 'z', fill: 0x9fb0ff, size: 8 },
 };
 function fx(e: Event) {
   const mk = (text: string, fill: number, size: number) => {
-    const n = new Text({ text, style: { fontSize: size, fontWeight: '700', fill, stroke: { color: 0x000000, width: 2 } } });
+    const n = new Text({ text, resolution: 4, style: { fontSize: size, fontWeight: '700', fill, stroke: { color: 0x000000, width: 2 } } });
     n.anchor.set(0.5, 1); n.position.set(e.x + 6, e.y - 4); fxLayer.addChild(n);
     const born = performance.now();
     const tk = () => { const a = (performance.now() - born) / 800; if (a >= 1) { app.ticker.remove(tk); n.destroy(); return; } n.y -= 0.5; n.alpha = 1 - a * a; };
@@ -458,7 +476,7 @@ app.ticker.add(() => {
   if (me) {
     const rx = prevX + (me.x - prevX) * a, ry = prevY + (me.y - prevY) * a;
     const v = view('r' + myId); v.c.position.set(Math.round(rx), Math.round(ry)); v.label.text = ''; seen.add('r' + myId);
-    drawRat(v, { facing: me.facing, grounded: me.grounded, biting: me.biteLeft > 0, down: me.down, dead: me.dead, vx: me.vx }, colorOf(myId), frame);
+    drawRat(v, { facing: me.facing, grounded: me.grounded, biting: me.biteLeft > 0, down: me.down, dead: me.dead, vx: me.vx, biteT: me.biteLeft / PHYS.biteDur }, colorOf(myId), frame);
     v.g.alpha = me.inv > 0 && Math.floor(frame / 3) % 2 ? 0.4 : 1;
     v.bar.clear(); if (me.down) v.bar.rect(0, -6, 14 * (me.revive / RULES.reviveTime), 2).fill(0x6fb06f);
     else if (me.exitProg > 0) v.bar.rect(0, -6, 14 * me.exitProg, 2).fill(0xe8d9c0);
@@ -473,7 +491,7 @@ app.ticker.add(() => {
       const r0 = s0?.rats.find((r) => r.id === r1.id) ?? r1;
       const x = r0.x + (r1.x - r0.x) * t, y = r0.y + (r1.y - r0.y) * t;
       const v = view('r' + r1.id); v.c.position.set(Math.round(x), Math.round(y)); v.label.text = r1.n; v.label.position.set(7, -3); seen.add('r' + r1.id);
-      drawRat(v, { facing: r1.f, grounded: r1.g === 1, biting: r1.b > 0, down: r1.dn === 1, dead: r1.dd === 1, vx: r1.vx }, colorOf(r1.id), frame);
+      drawRat(v, { facing: r1.f, grounded: r1.g === 1, biting: r1.b > 0, down: r1.dn === 1, dead: r1.dd === 1, vx: r1.vx, biteT: r1.b / PHYS.biteDur }, colorOf(r1.id), frame);
       v.bar.clear(); if (r1.dn) v.bar.rect(0, -6, 14 * (r1.rv / RULES.reviveTime), 2).fill(0x6fb06f);
       if (r1.wt) v.bar.circle(16, -4, 2).fill(0x7fd3ff);
       v.c.visible = !r1.ex;
