@@ -31,7 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: vars
-        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "sim=sim-$(cat $(ls packages/sim/src/*.ts | sort) | sha1sum | cut -c1-10)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -53,7 +55,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            BUILD_SHA=${{ steps.vars.outputs.tag }}
+            BUILD_SHA=${{ steps.vars.outputs.sim }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
