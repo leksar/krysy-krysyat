@@ -165,3 +165,11 @@ node tools/gen-assets/split-strip.mjs --in assets/generated/raw/human_P_strip.pn
 ```
 
 Хвосты крыс почти касаются соседнего кадра, поэтому при `--frames N` разрезы ищутся по самым пустым колонкам около границ ячеек, а не по чистым промежуткам.
+
+Сетки иконок (предметы): `--rows R --cols C` вместо `--frames` — ячейки режутся по самым пустым линиям у границ и идут в лист в порядке строк:
+
+```bash
+node tools/gen-assets/split-strip.mjs --in assets/generated/raw/items_a_grid.png --out apps/client/public/sprites/items_a.png --cell 16x16 --rows 4 --cols 4 --anchor center --scale 0.95
+```
+
+Если Codex вернул путь с обратными слэшами (`C:\Users\...\generated_images\...`), grep по `generated_images/` его не найдёт — брать путь из лога руками.

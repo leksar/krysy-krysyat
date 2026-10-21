@@ -21,7 +21,8 @@ const sharp = require('sharp');
 const args = Object.fromEntries(process.argv.slice(2).map((a, i, all) => (a.startsWith('--') ? [a.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : true] : null)).filter(Boolean));
 const inPath = resolve(args.in); const outPath = resolve(args.out);
 const [cellW, cellH] = String(args.cell ?? '32x16').split('x').map(Number);
-const wantFrames = Number(args.frames ?? 0);
+const gridRows = Number(args.rows ?? 0), gridCols = Number(args.cols ?? 0);
+const wantFrames = gridRows && gridCols ? gridRows * gridCols : Number(args.frames ?? 0);
 const chroma = parseHex(String(args.chroma ?? 'ff00ff')); const tol = Number(args.tol ?? 70);
 const fit = String(args.fit ?? 'both'); const scaleK = Number(args.scale ?? 1); const anchor = String(args.anchor ?? 'bottom');
 const preview = Number(args.preview ?? 0);
@@ -43,7 +44,21 @@ if (!opaque) { console.error('после хромакея пусто — не т
 const colCnt = new Int32Array(W);
 for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) if (buf[(y * W + x) * 4 + 3]) colCnt[x]++;
 let runs = [];
-if (wantFrames) {
+/** Разрезы по самым пустым линиям около ожидаемых границ ячеек (cnt — заполненность линии, N — число ячеек, L — длина) */
+const cutsFor = (cnt, N, L) => {
+  const cell = L / N, win = Math.round(cell * 0.35), cuts = [0];
+  for (let i = 1; i < N; i++) { const c0 = Math.round(cell * i); let best = c0, bs = Infinity; for (let x = Math.max(1, c0 - win); x < Math.min(L - 1, c0 + win); x++) { const sc = cnt[x] * 1000 + Math.abs(x - c0); if (sc < bs) { bs = sc; best = x; } } cuts.push(best); }
+  cuts.push(L); return cuts;
+};
+let rowBands = null; // для сетки: [y0, y1] каждой строки
+if (gridRows && gridCols) {
+  const rowCnt = new Int32Array(H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (buf[(y * W + x) * 4 + 3]) rowCnt[y]++;
+  const rc = cutsFor(rowCnt, gridRows, H), cc = cutsFor(colCnt, gridCols, W);
+  rowBands = []; runs = [];
+  for (let r = 0; r < gridRows; r++) for (let c = 0; c < gridCols; c++) { runs.push([cc[c], cc[c + 1]]); rowBands.push([rc[r], rc[r + 1]]); }
+  console.log('сетка', gridRows, 'x', gridCols, 'разрезы по X:', cc.join(' '), 'по Y:', rc.join(' '));
+} else if (wantFrames) {
   const cellPx = W / wantFrames, win = Math.round(cellPx * 0.35);
   const cuts = [0];
   for (let i = 1; i < wantFrames; i++) {
@@ -71,7 +86,7 @@ if (wantFrames && runs.length < wantFrames) console.warn('кадров мень�
 const n = wantFrames || runs.length;
 const sheet = Buffer.alloc(cellW * n * cellH * 4, 0);
 // общий масштаб для всех кадров: по самому высокому (или широкому) кадру, чтобы крыса не прыгала в размере между кадрами
-const boxes = runs.map(([x0, x1]) => bbox(buf, W, H, x0, x1));
+const boxes = runs.map(([x0, x1], i) => bbox(buf, W, H, x0, x1, rowBands ? rowBands[i][0] : 0, rowBands ? rowBands[i][1] : H));
 const maxH = Math.max(...boxes.map((b) => b.h)), maxW = Math.max(...boxes.map((b) => b.w));
 let k = Math.min(fit === 'height' ? Infinity : (cellW * scaleK) / maxW, fit === 'width' ? Infinity : (cellH * scaleK) / maxH);
 const frames = [];
@@ -98,9 +113,10 @@ if (preview) {
 }
 if (dumpFrames) for (const [i, [x0, x1]] of runs.entries()) await sharp(buf, { raw: { width: W, height: H, channels: 4 } }).extract({ left: x0, top: 0, width: x1 - x0, height: H }).png().toFile(outPath.replace(/\.png$/, `.frame${i}.png`));
 
-function bbox(buf, W, H, x0, x1) {
+function bbox(buf, W, H, x0, x1, y0 = 0, y1 = H) {
   let minX = W, maxX = -1, minY = H, maxY = -1;
-  for (let y = 0; y < H; y++) for (let x = x0; x < x1; x++) if (buf[(y * W + x) * 4 + 3]) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (buf[(y * W + x) * 4 + 3]) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+  if (maxX < 0) return { x: x0, y: y0, w: 1, h: 1, empty: true };
   return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
 }
 function parseHex(s) { const h = s.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }

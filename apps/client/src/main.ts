@@ -1,6 +1,6 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
-import { sheet, preloadSheets, humanFrame, RAT_CELL, type RatFamily } from './sheets';
+import { sheet, preloadSheets, humanFrame, itemFrame, RAT_CELL, type RatFamily } from './sheets';
 import { PROP_META } from './alchemy-ui';
 import { stashHtml, cauldronHtml, shelfHtml, ratCardHtml, drinkModalHtml, revealHtml, stashTotalsText, type Ctx as UiCtx } from './alchemy-ui';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
@@ -563,7 +563,7 @@ function fx(e: Event) {
       break;
     }
     case 'hurt': mk(`-${e.a}`, 0xff5050, 12); break;
-    case 'pick': { const s = new Sprite(itemTex(e.b ?? '')); s.position.set(e.x, e.y - 6); fxLayer.addChild(s); const born = performance.now(); const tk = () => { const a = (performance.now() - born) / 500; if (a >= 1) { app.ticker.remove(tk); s.destroy(); return; } s.y -= 0.6; s.alpha = 1 - a; }; app.ticker.add(tk); break; }
+    case 'pick': { const s = new Sprite(itemTex(e.b ?? '')); s.scale.set(itemScale(e.b ?? '')); s.position.set(e.x, e.y - 6); fxLayer.addChild(s); const born = performance.now(); const tk = () => { const a = (performance.now() - born) / 500; if (a >= 1) { app.ticker.remove(tk); s.destroy(); return; } s.y -= 0.6; s.alpha = 1 - a; }; app.ticker.add(tk); break; }
     case 'stomp': mk('ТОП', 0xffffff, 8); break;
     case 'swing': mk('ХРЯСЬ', 0xffffff, 8); break;
     case 'scream': mk('А-А-А!', 0xffd040, 9); break;
@@ -573,8 +573,11 @@ function fx(e: Event) {
     case 'cat': mk('МЯУ', 0xffa040, 10); break;
   }
 }
-function showCarry(v: View, kind: string | null, facing: 1 | -1) { if (!kind) return; v.extra.visible = true; v.extra.texture = itemTex(kind); v.extra.tint = ITEM_TINT[kind] ?? 0xffffff; v.extra.anchor.set(0.5, 0.5); v.extra.position.set(facing > 0 ? 17 : -3, 4); v.extra.scale.set(1.1); v.extra.rotation = 0; }
-function itemTex(kind: string): Texture { const k = KINDS[kind]; return k ? tex('item_' + k.type, ITEM[k.type]) : Texture.EMPTY; }
+function showCarry(v: View, kind: string | null, facing: 1 | -1) { if (!kind) return; v.extra.visible = true; v.extra.texture = itemTex(kind); v.extra.tint = itemTint(kind); v.extra.anchor.set(0.5, 0.5); v.extra.position.set(facing > 0 ? 17 : -3, 4); v.extra.scale.set(1.1 * itemScale(kind)); v.extra.rotation = 0; }
+function itemTex(kind: string): Texture { const f = itemFrame(kind); if (f) return f; const k = KINDS[kind]; return k ? tex('item_' + k.type, ITEM[k.type]) : Texture.EMPTY; }
+/** Иконки из листа 16×16 рисуются в мире вполовину и без подкраски; процедурные 8×8 — как раньше */
+const itemScale = (kind: string) => (itemFrame(kind) ? 0.5 : 1);
+const itemTint = (kind: string) => (itemFrame(kind) ? 0xffffff : ITEM_TINT[kind] ?? 0xffffff);
 
 // ---------- цикл ----------
 let acc = 0, last = performance.now(), frame = 0, prevX = 0, prevY = 0;
@@ -665,17 +668,24 @@ app.ticker.add(() => {
       const x = p0[2] + (p1[2] - p0[2]) * t, y = p0[3] + (p1[3] - p0[3]) * t;
       const v = view('p' + p1[0]); seen.add('p' + p1[0]);
       const flying = p1[4] !== 'perch' && p1[4] !== 'hold';
-      v.sp.texture = tex('pg' + (flying && Math.floor(frame / 4) % 2 ? 'b' : 'a'), PIGEON[flying && Math.floor(frame / 4) % 2 ? 'b' : 'a']);
-      v.sp.anchor.set(0.5, 0.5); v.sp.position.set(0, 0); v.sp.scale.x = p1[2] - p0[2] < 0 ? -1 : 1;
-      v.sp.tint = p1[1] === 'F' ? 0xd0b0b0 : 0xffffff;
-      v.extra.visible = !!p1[5]; if (v.extra.visible) { v.extra.texture = itemTex(p1[5]); v.extra.anchor.set(0.5, 0); v.extra.position.set(0, 4); v.extra.tint = ITEM_TINT[p1[5]] ?? 0xffffff; v.extra.scale.x = 1; }
+      const dir = p1[2] - p0[2] < 0 ? -1 : 1, ps = sheet('pigeon_' + p1[1]);
+      if (ps) {
+        const st = p1[4], flap = 1 + (Math.floor(frame / 4) % 2);
+        const fi = st === 'perch' || st === 'hold' ? 0 : st === 'dive' ? 3 : st === 'attack' ? 4 : st === 'flee' && p1[1] === 'F' ? 5 : flap;
+        v.sp.texture = ps.frames[fi]; v.sp.anchor.set(0.5, 0.5); v.sp.position.set(0, 0); v.sp.scale.set(dir * 0.5, 0.5); v.sp.tint = 0xffffff;
+      } else {
+        v.sp.texture = tex('pg' + (flying && Math.floor(frame / 4) % 2 ? 'b' : 'a'), PIGEON[flying && Math.floor(frame / 4) % 2 ? 'b' : 'a']);
+        v.sp.anchor.set(0.5, 0.5); v.sp.position.set(0, 0); v.sp.scale.set(dir, 1);
+        v.sp.tint = p1[1] === 'F' ? 0xd0b0b0 : 0xffffff;
+      }
+      v.extra.visible = !!p1[5]; if (v.extra.visible) { v.extra.texture = itemTex(p1[5]); v.extra.anchor.set(0.5, 0); v.extra.position.set(0, 4); v.extra.tint = itemTint(p1[5]); v.extra.scale.set(itemScale(p1[5])); }
       v.c.position.set(Math.round(x), Math.round(y));
       v.label.text = p1[1] === 'F' && p1[4] === 'attack' ? '!' : ''; v.label.style.fill = 0xff8040; v.label.position.set(0, -6);
     }
     for (const i1 of s1.it) {
       const v = view('i' + i1[0]); seen.add('i' + i1[0]);
       const sz = itemSize(i1[1]);
-      v.sp.texture = itemTex(i1[1]); v.sp.tint = i1[4] ? 0xffe040 : ITEM_TINT[i1[1]] ?? 0xffffff; v.sp.anchor.set(0, 0); v.sp.scale.set(sz === 3 ? 1.6 : sz === 2 ? 1.25 : 1);
+      v.sp.texture = itemTex(i1[1]); v.sp.tint = i1[4] ? 0xffe040 : itemTint(i1[1]); v.sp.anchor.set(0, 0); v.sp.scale.set((sz === 3 ? 1.6 : sz === 2 ? 1.25 : 1) * itemScale(i1[1]));
       v.g.clear();
       if (sz === 3) { // тяжёлое: ящик-тело, за которое держатся
         v.g.roundRect(0, 0, HEAVY_W, HEAVY_H, 2).fill(0x4a3626).stroke({ width: 1, color: 0x8a6a4a }); v.g.rect(2, 2, HEAVY_W - 4, 1).fill(0x6a4a2a);
@@ -693,7 +703,9 @@ app.ticker.add(() => {
     }
     if (s1.cat) {
       const c0 = s0?.cat ?? s1.cat; const v = view('cat'); seen.add('cat');
-      v.sp.texture = tex('cat' + (Math.floor(frame / 6) % 2 ? 'b' : 'a'), CAT[Math.floor(frame / 6) % 2 ? 'b' : 'a']); v.sp.anchor.set(0.5, 1); v.sp.position.set(11, 14); v.sp.scale.x = s1.cat[2] > 0 ? 1 : -1;
+      const cs = sheet('cat'), cdir = s1.cat[2] > 0 ? 1 : -1, cmoving = Math.abs(s1.cat[0] - c0[0]) > 0.2 || Math.abs(s1.cat[2]) > 5;
+      if (cs) { v.sp.texture = cs.frames[cmoving ? 1 + (Math.floor(frame / 6) % 2) : 0]; v.sp.anchor.set(0.5, 1); v.sp.position.set(11, 14); v.sp.scale.set(cdir * 0.5, 0.5); }
+      else { v.sp.texture = tex('cat' + (Math.floor(frame / 6) % 2 ? 'b' : 'a'), CAT[Math.floor(frame / 6) % 2 ? 'b' : 'a']); v.sp.anchor.set(0.5, 1); v.sp.position.set(11, 14); v.sp.scale.set(cdir, 1); }
       v.c.position.set(Math.round(c0[0] + (s1.cat[0] - c0[0]) * t), Math.round(c0[1] + (s1.cat[1] - c0[1]) * t));
     }
     for (const [k, v] of views) if (!seen.has(k)) { v.c.destroy(); views.delete(k); }

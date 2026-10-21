@@ -41,7 +41,11 @@ export function tex(name: string, def: SpriteDef): Texture {
 }
 const iconCache = new Map<string, string>();
 /** Иконка предмета для DOM (HUD, итоги): спрайт типа, тонированный цветом вида. */
+let iconOverride: ((kind: string, scale: number) => string | null) | null = null;
+/** Листы иконок (sheets.ts) подменяют процедурные иконки, когда загрузятся */
+export function setIconOverride(f: (kind: string, scale: number) => string | null) { iconOverride = f; }
 export function itemIcon(kind: string, scale = 2): string {
+  const o = iconOverride?.(kind, scale); if (o) return o;
   const key = kind + ':' + scale; const hit = iconCache.get(key); if (hit) return hit;
   const k = KINDS[kind]; const def = ITEM[k?.type ?? 'trash']; const tint = ITEM_TINT[kind] ?? 0xffffff;
   const src = draw(def); const tctx = src.getContext('2d')!;
