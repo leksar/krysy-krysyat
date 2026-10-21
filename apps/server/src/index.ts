@@ -74,6 +74,7 @@ wss.on('connection', (ws, req) => {
       case 'setMap': if (peer.id === room.hostId && room.phase === 'lobby' && MAPS[m.map]) { room.map = m.map; broadcast(room, lobbyMsg(room)); } break;
       case 'start': if (peer.id === room.hostId && room.phase === 'lobby') startRaid(room); break;
       case 'back': if (room.phase === 'results') toLobby(room); break;
+      case 'abort': if (peer.id === room.hostId && room.phase === 'raid' && room.world) { console.log(`✖ ${room.code}: aborted by host`); room.world.over = true; } break;
     }
   });
   ws.on('close', () => {

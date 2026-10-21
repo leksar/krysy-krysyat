@@ -38,12 +38,25 @@ class G {
       const [r, c] = q.shift()!;
       const cand: [number, number][] = [];
       for (const dc of [-1, 1]) if (!this.solid(r, c + dc)) cand.push([r, c + dc]);
+      // прыжок вверх на up рядов, затем вбок: свободен должен быть ВЕСЬ путь (вертикаль над крысой и горизонталь на высоте апекса),
+      // иначе проверка «прыгает сквозь стены» (баг первой версии: ловушка на спавне)
       for (let up = 1; up <= JUMP_UP; up++) {
         let blocked = false; for (let k = 1; k <= up; k++) if (this.solid(r - k, c)) { blocked = true; break; }
         if (blocked) break;
-        for (let dc = -JUMP_GAP - 1; dc <= JUMP_GAP + 1; dc++) { const cc = c + dc; if (cc > 0 && cc < this.cols - 1 && !this.solid(r - up, cc)) cand.push([r - up, cc]); }
+        const maxDx = up === 3 ? 2 : JUMP_GAP + 1; // на полную высоту далеко не улетишь
+        for (const dir of [-1, 1]) for (let d = 1; d <= maxDx; d++) {
+          const cc = c + dir * d; if (cc <= 0 || cc >= this.cols - 1) break;
+          if (this.solid(r - up, cc)) break; // стена на высоте апекса — дальше не пролететь
+          cand.push([r - up, cc]);
+        }
+        cand.push([r - up, c]);
       }
-      for (let dc = -JUMP_GAP - 1; dc <= JUMP_GAP + 1; dc++) { const cc = c + dc; if (cc > 0 && cc < this.cols - 1 && !this.solid(r, cc) && !this.solid(r - 1, cc)) cand.push([r, cc]); }
+      // прыжок через просвет на том же уровне: дуга идёт на ряд выше, путь должен быть свободен
+      for (const dir of [-1, 1]) for (let d = 1; d <= JUMP_GAP + 1; d++) {
+        const cc = c + dir * d; if (cc <= 0 || cc >= this.cols - 1) break;
+        if (this.solid(r - 1, cc) || this.solid(r, cc)) break;
+        cand.push([r, cc]);
+      }
       for (const [rr, cc] of cand) { const f = fall(rr, cc); if (f && !seen.has(key(...f))) { seen.add(key(...f)); q.push(f); } }
     }
     return seen;
@@ -54,7 +67,7 @@ type Cell = { r: number; c: number };
 
 export function generateLevel(themeId: string, seed: number): Level {
   const theme = (MAPS[themeId] ? themeId : 'yard') as ThemeId;
-  for (let attempt = 0; attempt < 8; attempt++) {
+  for (let attempt = 0; attempt < 24; attempt++) {
     const lvl = tryGenerate(theme, (seed + attempt * 7919) | 0);
     if (lvl) return lvl;
   }
@@ -91,7 +104,7 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
 
   // --- структуры по теме ---
   const structs: ((anchorC: number) => void)[] = theme === 'yard' ? [
-    (a) => tree(g, a, groundTop[a]), (a) => garage(g, a, groundTop[a]), (a) => tower(g, a, groundTop[a], 'balcony'), (a) => bench(g, a, groundTop[a]), (a) => bins(g, a, groundTop[a]),
+    (a) => tree(g, a, groundTop[a]), (a) => tree(g, a, groundTop[a]), (a) => garage(g, a, groundTop[a]), (a) => tower(g, a, groundTop[a], 'balcony'), (a) => bench(g, a, groundTop[a]), (a) => bins(g, a, groundTop[a]),
   ] : theme === 'kitchen' ? [
     (a) => table(g, a, groundTop[a]), (a) => shelves(g, a, groundTop[a]), (a) => fridge(g, a, groundTop[a]), (a) => tower(g, a, groundTop[a], 'lift'), (a) => table(g, a, groundTop[a]),
   ] : [
@@ -112,7 +125,7 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
   const spawnC = 2; let spawnR = 1; while (!g.stand(spawnR, spawnC) && spawnR < ROWS - 2) spawnR++;
   const seen = g.reach([spawnR, spawnC]);
   const cells: Cell[] = []; for (const k of seen) cells.push({ r: Math.floor(k / cols), c: k % cols });
-  if (cells.length < cols * 1.5 && !force) return null;
+  if (cells.length < cols * 1.8 && !force) return null;
   const used = new Set<number>(); const key = (x: Cell) => x.r * cols + x.c;
   const take = (pred: (x: Cell) => boolean, minDist = 0, from: Cell[] = []): Cell | null => {
     const pool = cells.filter((x) => !used.has(key(x)) && pred(x) && from.every((f) => Math.abs(f.c - x.c) >= minDist));
@@ -163,8 +176,8 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
 function tree(g: G, a: number, top: number) {
   const h = 6 + g.ri(5);
   g.wall(a, top - h + 1, top); g.wall(a + 1, top - h + 1, top);
-  let side = g.rand() < 0.5 ? 1 : -1;
-  for (let r = top - 2; r > top - h; r -= 2) { const w = 3 + g.ri(3); if (side > 0) g.ledge(r, a + 2, a + 1 + w); else g.ledge(r, a - w, a - 1); side = -side; }
+  // кроны с обеих сторон каждые 2 ряда — ствол перекрывает проход, значит дерево должно быть лазабельным с любой стороны
+  for (let r = top - 2; r > top - h; r -= 2) { g.ledge(r, a + 2, a + 2 + g.ri(3)); g.ledge(r, a - 1 - g.ri(3), a - 1); }
   g.ledge(top - h, a - 2, a + 3);
 }
 function garage(g: G, a: number, top: number) {
@@ -176,8 +189,7 @@ function garage(g: G, a: number, top: number) {
 function tower(g: G, a: number, top: number, kind: 'balcony' | 'lift' | 'escape') {
   const h = 12 + g.ri(8), w = kind === 'lift' ? 1 : 2;
   g.box(top - h + 1, top, a, a + w);
-  let side = 1;
-  for (let r = top - 2; r > top - h; r -= 2) { const len = 3 + g.ri(2); if (side > 0) g.ledge(r, a + w + 1, a + w + len); else g.ledge(r, a - len, a - 1); side = -side; }
+  for (let r = top - 2; r > top - h; r -= 2) { g.ledge(r, a + w + 1, a + w + 2 + g.ri(2)); g.ledge(r, a - 2 - g.ri(2), a - 1); }
   g.ledge(top - h, a - 1, a + w + 1);
 }
 function bench(g: G, a: number, top: number) { g.ledge(top - 1, a, a + 3); if (g.rand() < 0.5) g.box(top - 2, top, a + 6, a + 7); }
@@ -186,5 +198,5 @@ function table(g: G, a: number, top: number) { const w = 5 + g.ri(4); g.box(top 
 function shelves(g: G, a: number, top: number) { let r = top - 3; let off = 0; for (let i = 0; i < 3 + g.ri(3); i++) { g.ledge(r, a + off, a + off + 4 + g.ri(3)); r -= 2 + g.ri(2); off += g.pick([-3, 3, 4]); } }
 function fridge(g: G, a: number, top: number) { g.box(top - 5, top, a, a + 2); g.ledge(top - 1, a - 2, a - 2); g.ledge(top - 3, a - 3, a - 2); }
 function hut(g: G, a: number, top: number) { const w = 4 + g.ri(3); g.box(top - 3, top, a, a + w); g.ledge(top - 1, a - 2, a - 1); g.ledge(top - 5, a + 1, a + 2); }
-function antenna(g: G, a: number, top: number) { const h = 8 + g.ri(6); g.wall(a, top - h + 1, top); let side = 1; for (let r = top - 2; r > top - h; r -= 2) { if (side > 0) g.ledge(r, a + 1, a + 2 + g.ri(2)); else g.ledge(r, a - 2 - g.ri(2), a - 1); side = -side; } }
+function antenna(g: G, a: number, top: number) { const h = 8 + g.ri(6); g.wall(a, top - h + 1, top); for (let r = top - 2; r > top - h; r -= 2) { g.ledge(r, a + 1, a + 1 + g.ri(2)); g.ledge(r, a - 1 - g.ri(2), a - 1); } }
 function ventbox(g: G, a: number, top: number) { g.box(top - 1, top, a, a + 1 + g.ri(2)); }

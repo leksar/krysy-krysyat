@@ -27,7 +27,8 @@ export const RULES = {
   exitTime: { '1': 5, '2': 5, '3': 1 } as Record<ExitType, number>,
   panicPerSec: 0.25, panicHuman: 1, panicKid: 4, panicKillP: 8, panicKillD: 10, panicKillK: 25, panicKillZ: 5,
   thresholds: { pigeons: 30, cat: 60, flock: 85 },
-  lukOpenPanic: 40, // v0: Люк открывается от Переполоха (Заражения ещё нет)
+  lukInfected: 2, lukOpenPanic: 70, // Люк: ≥2 Заражённых Людей (или Переполох как запасной путь)
+  drinkTime: 1, markTime: 0.6, eatTime: 1.5, infStage: 30, contagion: 0.05, pusEvery: 15,
 };
 
 // ---------- предметы ----------
@@ -54,8 +55,13 @@ export const KINDS: Record<string, ItemKind> = {
   liver:   { name: 'Печень',            type: 'organ', size: 3, icon: '🥩' },
   heart:   { name: 'Сердце',            type: 'organ', size: 3, icon: '🫀' },
   carcass: { name: 'Тушка голубя',      type: 'organ', size: 2, icon: '🍖' },
+  pus:     { name: 'Гной',              type: 'secr',  size: 1, icon: '🟢' },
+  tear:    { name: 'Слеза',             type: 'secr',  size: 1, icon: '💧' },
+  brain:   { name: 'Мозг Ослабшего',    type: 'organ', size: 3, icon: '🧠' },
+  bile:    { name: 'Жёлчный пузырь',    type: 'organ', size: 2, icon: '🟡' },
+  kidheart:{ name: 'Сердце Ослабшего Ребёнка', type: 'organ', size: 2, icon: '💗' },
 };
-export type Item = { id: number; kind: string; x: number; y: number; vy: number; grounded: boolean };
+export type Item = { id: number; kind: string; x: number; y: number; vy: number; grounded: boolean; marked: boolean };
 
 // ---------- сущности ----------
 export type Body = { x: number; y: number; w: number; h: number; vx: number; vy: number; grounded: boolean };
@@ -69,6 +75,8 @@ export type Rat = Body & {
   pockets: string[];        // kinds
   revive: number;           // прогресс подъёма ЭТОЙ крысы (её поднимают)
   inv: number;              // неуязвимость после удара, с
+  water: boolean;           // попила — готова поставить Метку
+  act: number;              // прогресс длительного действия (пить/метить)
   exitProg: number;         // прогресс выхода
   banked: string[];         // вынесенное (после выхода)
   hits: number;
@@ -76,13 +84,14 @@ export type Rat = Body & {
 export const RAT_W = 14, RAT_H = 10;
 
 export type HumanType = 'P' | 'D' | 'K' | 'Z';
-export type HumanState = 'walk' | 'panic' | 'chase' | 'sleep' | 'stomp' | 'swing' | 'windup';
+export type HumanState = 'walk' | 'panic' | 'chase' | 'sleep' | 'stomp' | 'swing' | 'windup' | 'eat';
 export type Human = Body & {
   id: number; type: HumanType; facing: 1 | -1; state: HumanState; hp: number;
   timer: number; cd: number; target: string | null; dropped: boolean;
   biters: { id: string; at: number }[];
   stun: number; wind: 'stomp' | 'swing' | null; after: HumanState;
   pcd: number; // кулдаун вклада в Переполох: один и тот же Человек не накручивает шкалу каждые 3 с
+  inf: 0 | 1 | 2 | 3; infT: number; pusT: number; // Заражение: стадия, время в стадии, таймер Гноя
 };
 const HUMAN: Record<HumanType, { hp: number; w: number; h: number; speed: number; icon: string; name: string }> = {
   P: { hp: 80, w: 12, h: 28, speed: 40, icon: '🧍', name: 'Прохожий' },
@@ -138,9 +147,9 @@ export function createWorld(map: string, seed: number): World {
 
 function makeHuman(w: World, type: HumanType, x: number, y: number): Human {
   const d = HUMAN[type];
-  return { id: w.nextId++, type, x: x + (16 - d.w) / 2, y: y + 16 - d.h, w: d.w, h: d.h, vx: 0, vy: 0, grounded: false, facing: 1, state: type === 'Z' ? 'sleep' : 'walk', hp: d.hp, timer: 0, cd: 0, target: null, dropped: false, biters: [], stun: 0, wind: null, after: 'walk', pcd: 0 };
+  return { id: w.nextId++, type, x: x + (16 - d.w) / 2, y: y + 16 - d.h, w: d.w, h: d.h, vx: 0, vy: 0, grounded: false, facing: 1, state: type === 'Z' ? 'sleep' : 'walk', hp: d.hp, timer: 0, cd: 0, target: null, dropped: false, biters: [], stun: 0, wind: null, after: 'walk', pcd: 0, inf: 0, infT: 0, pusT: 0 };
 }
-function spawnItem(w: World, kind: string, x: number, y: number): Item { const it = { id: w.nextId++, kind, x, y, vy: 0, grounded: false }; w.items.push(it); return it; }
+function spawnItem(w: World, kind: string, x: number, y: number): Item { const it = { id: w.nextId++, kind, x, y, vy: 0, grounded: false, marked: false }; w.items.push(it); return it; }
 function spawnPigeon(w: World, type: PigeonType): Pigeon {
   const p = w.level.perches[ri(w, w.level.perches.length)] ?? { x: 100, y: 40 };
   const pg: Pigeon = { id: w.nextId++, type, x: p.x, y: p.y, vx: 0, vy: 0, state: 'perch', hp: PHYS.pigeonHp, timer: 6 + rand(w) * 8, target: null, carry: null, tx: p.x, ty: p.y };
@@ -150,7 +159,7 @@ function spawnPigeon(w: World, type: PigeonType): Pigeon {
 export function addRat(w: World, id: string, name: string): Rat {
   const n = w.rats.size, sp = w.level.spawns;
   const s = sp[n % sp.length];
-  const r: Rat = { id, name, x: s.x + 1 + Math.floor(n / sp.length) * 18, y: s.y - Math.floor(n / sp.length) * 12, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: RULES.ratHp, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, exitProg: 0, banked: [], hits: 0 };
+  const r: Rat = { id, name, x: s.x + 1 + Math.floor(n / sp.length) * 18, y: s.y - Math.floor(n / sp.length) * 12, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: RULES.ratHp, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, water: false, act: 0, exitProg: 0, banked: [], hits: 0 };
   w.rats.set(id, r); return r;
 }
 
@@ -257,7 +266,18 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     h.cd = Math.max(0, h.cd - dt); h.timer = Math.max(0, h.timer - dt); h.stun = Math.max(0, h.stun - dt); h.pcd = Math.max(0, h.pcd - dt);
     h.biters = h.biters.filter((b) => w.tick - Number(b.at) < 3 * TICK_HZ);
     const near = nearestRat(alive, h, 12 * TILE);
+    // Заражение: стадии по RULES.infStage с; Болеет — медленнее и роняет Гной; контакт заражает других
+    if (h.inf > 0) {
+      h.infT += dt;
+      if (h.inf < 3 && h.infT >= RULES.infStage) { h.inf++; h.infT = 0; ev(w, h.inf === 2 ? 'sick' : 'weak', h.x, h.y, HUMAN[h.type].name); }
+      if (h.inf >= 2) { h.pusT += dt; if (h.pusT >= RULES.pusEvery) { h.pusT = 0; dropFrom(w, h, [h.type === 'K' ? 'tear' : 'pus']); } }
+      for (const o of w.humans) if (o !== h && o.inf === 0 && o.hp > 0 && overlap(h, o, 2) && rand(w) < RULES.contagion * dt) infect(w, o);
+    }
     if (h.stun > 0) { h.vx = 0; }
+    else if (h.state === 'eat') {
+      h.vx = 0;
+      if (h.timer === 0) h.state = 'walk';
+    }
     else if (h.state === 'windup') {
       h.vx = 0;
       if (h.timer === 0) { if (h.wind === 'stomp') stomp(w, h, alive); else swing(w, h, alive); h.state = h.after; h.timer = h.after === 'chase' ? 4 : 2; h.wind = null; }
@@ -281,6 +301,15 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
       }
     } else { // walk
       if (h.vx === 0) h.vx = h.facing * d.speed;
+      // Еда под ногами — остановиться и съесть (Меченая — заразиться)
+      for (const it of w.items) {
+        if (it.id < 0 || !it.grounded || KINDS[it.kind].type !== 'food') continue;
+        if (Math.abs(it.x + 4 - (h.x + h.w / 2)) < 10 && Math.abs(it.y + 8 - (h.y + h.h)) < 6) {
+          it.id = -1; h.state = 'eat'; h.timer = RULES.eatTime; h.vx = 0; ev(w, 'eat', h.x, h.y, it.marked ? 'marked' : '');
+          if (it.marked && h.inf === 0) infect(w, h);
+          break;
+        }
+      }
       if (near && Math.abs(near.y + near.h - (h.y + h.h)) < 40 && Math.abs(near.x - h.x) < (h.type === 'D' ? 8 : 5) * TILE) {
         if (h.type === 'D') { h.state = 'chase'; h.timer = 6; if (!h.dropped) { h.dropped = true; dropFrom(w, h, ['sock']); } }
         else {
@@ -294,6 +323,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
       if (h.grounded && (edgeAhead(l, h, h.facing) )) { h.facing = -h.facing as 1 | -1; h.vx = h.facing * d.speed; }
       if (h.type === 'K' && rand(w) < 0.004) { h.facing = -h.facing as 1 | -1; h.vx = h.facing * d.speed; }
     }
+    if (h.inf >= 2) h.vx *= h.inf === 3 ? 0.4 : 0.6;
     h.vy = Math.min(h.vy + PHYS.fallGravity * dt, PHYS.maxFall);
     const blocked = moveBody(l, h, dt);
     if (blocked && h.state === 'walk') { h.facing = -h.facing as 1 | -1; h.vx = h.facing * d.speed; }
@@ -353,6 +383,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     for (const it of w.items) {
       if (it.id < 0) continue;
       const k = KINDS[it.kind];
+      if (it.marked) continue; // Меченая еда — приманка, не подбираем
       if (overlap(r, { x: it.x, y: it.y, w: 8, h: 8 }, 2) && pocketsUsed(r) + k.size <= RULES.pockets) { r.pockets.push(it.kind); it.id = -1; ev(w, 'pick', it.x, it.y, k.icon); }
     }
   }
@@ -372,9 +403,19 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     if (inp.actHeld) {
       for (const o of alive) if (o !== r && o.down && dist(o, r) < 22) { o.revive += dt; reviving = true; if (o.revive >= RULES.reviveTime) { o.down = false; o.hp = RULES.reviveHp; o.revive = 0; ev(w, 'revive', o.x, o.y, o.name); } }
     }
+    // попить (у воды) / поставить Метку (у Еды на земле) — длительное действие
+    let acting = false;
+    if (!reviving && inp.actHeld) {
+      if (!r.water) {
+        for (const wt of l.water) if (overlap(r, { x: wt.x - 2, y: wt.y, w: 20, h: 16 })) { acting = true; r.act += dt / RULES.drinkTime; if (r.act >= 1) { r.water = true; r.act = 0; ev(w, 'drink', r.x, r.y); } break; }
+      } else {
+        for (const it of w.items) if (it.id >= 0 && it.grounded && !it.marked && KINDS[it.kind].type === 'food' && overlap(r, { x: it.x, y: it.y, w: 8, h: 8 }, 4)) { acting = true; r.act += dt / RULES.markTime; if (r.act >= 1) { it.marked = true; r.water = false; r.act = 0; ev(w, 'mark', it.x, it.y); } break; }
+      }
+    }
+    if (!acting) r.act = 0;
     // выход
     let exiting = false;
-    if (!reviving && inp.actHeld) {
+    if (!reviving && !acting && inp.actHeld) {
       for (const e of l.exits) {
         if (!e.open || !overlap(r, { x: e.x - 4, y: e.y - 4, w: 24, h: 24 })) continue;
         if (e.type === '3' && r.pockets.some((k) => KINDS[k].size === 3)) { ev(w, 'nofit', r.x, r.y); continue; }
@@ -384,12 +425,13 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     }
     if (!exiting) r.exitProg = 0;
     // выбросить последний предмет (тап по Действию без контекста)
-    if (inp.act && !reviving && !exiting && r.pockets.length) { const k = r.pockets.pop()!; const it = spawnItem(w, k, r.x + (r.facing > 0 ? r.w + 2 : -10), r.y); it.vy = -80; }
+    if (inp.act && !reviving && !exiting && !acting && r.pockets.length) { const k = r.pockets.pop()!; const it = spawnItem(w, k, r.x + (r.facing > 0 ? r.w + 2 : -10), r.y); it.vy = -80; }
   }
 
   // --- Переполох и пороги ---
   w.panic = Math.min(100, w.panic + RULES.panicPerSec * dt);
-  for (const e of l.exits) if (e.type === '2' && !e.open && w.panic >= RULES.lukOpenPanic) { e.open = true; ev(w, 'luk', e.x, e.y); }
+  const infected = w.humans.filter((h) => h.inf > 0).length;
+  for (const e of l.exits) if (e.type === '2' && !e.open && (infected >= RULES.lukInfected || w.panic >= RULES.lukOpenPanic)) { e.open = true; ev(w, 'luk', e.x, e.y); }
   if (w.stage < 1 && w.panic >= RULES.thresholds.pigeons) { w.stage = 1; spawnPigeon(w, 'V'); spawnPigeon(w, 'F'); ev(w, 'stage', 0, 0, 'Голуби слетаются'); }
   if (w.stage < 2 && w.panic >= RULES.thresholds.cat) { w.stage = 2; const cp = l.cat ?? l.spawns[0]; w.cat = { id: w.nextId++, x: cp.x, y: cp.y - 8, w: 22, h: 14, vx: 0, vy: 0, grounded: false, hp: 200, cd: 2, alive: true }; ev(w, 'stage', 0, 0, 'Пришёл кот'); }
   if (w.stage < 3 && w.panic >= RULES.thresholds.flock) { w.stage = 3; for (let i = 0; i < 4; i++) spawnPigeon(w, 'F'); ev(w, 'stage', 0, 0, 'Стая голубей'); }
@@ -429,19 +471,20 @@ function stomp(w: World, h: Human, alive: Rat[]) { for (const r of alive) if (Ma
 function swing(w: World, h: Human, alive: Rat[]) { for (const r of alive) if (Math.abs(r.x + r.w / 2 - (h.x + h.w / 2)) < 28 && Math.abs(r.y - h.y) < 32) { damageRat(w, r, PHYS.swingDmg, alive); r.vx = h.facing * 180; r.vy = -120; } ev(w, 'swing', h.x, h.y); }
 function biteHuman(w: World, h: Human, a: Rat) {
   if (!h.biters.some((b) => b.id === a.id)) h.biters.push({ id: a.id, at: w.tick });
-  const pack = h.biters.length >= 2 || h.type === 'K' || h.type === 'Z';
+  const pack = h.biters.length >= 2 || h.type === 'K' || h.type === 'Z' || h.inf === 3;
   const dmg = pack ? PHYS.biteDmg : PHYS.biteDmg * PHYS.soloBite;
   h.hp -= dmg; h.stun = PHYS.humanStun; h.vx = a.facing * 40; if (h.state === 'windup') { h.state = h.after; h.wind = null; }
   ev(w, 'hit', h.x, h.y, String(Math.round(dmg)), pack ? '' : 'weak');
   if (h.type === 'Z') { if (rand(w) < 0.3) dropFrom(w, h, ['drool']); }
   else if (h.state === 'walk' || h.state === 'sleep') { h.state = h.type === 'D' ? 'chase' : 'panic'; h.timer = 3; }
   if (h.hp <= 0) {
-    const organ = h.type === 'P' ? (rand(w) < 0.2 ? 'heart' : 'kidney') : h.type === 'D' ? 'lung' : h.type === 'K' ? 'tooth' : 'liver';
+    const organ = h.inf === 3 ? (h.type === 'Z' ? 'bile' : h.type === 'K' ? 'kidheart' : 'brain') : h.type === 'P' ? (rand(w) < 0.2 ? 'heart' : 'kidney') : h.type === 'D' ? 'lung' : h.type === 'K' ? 'tooth' : 'liver';
     dropFrom(w, h, [organ]);
     w.panic += h.type === 'P' ? RULES.panicKillP : h.type === 'D' ? RULES.panicKillD : h.type === 'K' ? RULES.panicKillK : RULES.panicKillZ;
     ev(w, 'kill', h.x, h.y, HUMAN[h.type].name);
   }
 }
+function infect(w: World, h: Human) { h.inf = 1; h.infT = 0; h.pusT = 0; ev(w, 'infect', h.x, h.y, HUMAN[h.type].name); }
 function bitePigeon(w: World, pg: Pigeon, a: Rat) {
   pg.hp -= PHYS.biteDmg; ev(w, 'hit', pg.x, pg.y, String(PHYS.biteDmg));
   if (pg.carry) { const it = spawnItem(w, pg.carry, pg.x, pg.y); it.vy = -40; pg.carry = null; }
@@ -451,30 +494,30 @@ function bitePigeon(w: World, pg: Pigeon, a: Rat) {
 function spill(w: World, r: Rat) { let i = 0; for (const k of r.pockets) { const it = spawnItem(w, k, r.x + (i++ - 1) * 10, r.y - 4); it.vy = -80 - i * 10; } r.pockets = []; }
 
 // ---------- снапшоты ----------
-export type RatSnap = { id: string; n: string; x: number; y: number; vx: number; vy: number; f: 1 | -1; g: 0 | 1; b: number; cd: number; cl: number; bl: number; s: number; hp: number; dn: 0 | 1; dl: number; dd: 0 | 1; ex: 0 | 1; pk: string[]; rv: number; ep: number; bk: string[] };
+export type RatSnap = { id: string; n: string; x: number; y: number; vx: number; vy: number; f: 1 | -1; g: 0 | 1; b: number; cd: number; cl: number; bl: number; s: number; hp: number; dn: 0 | 1; dl: number; dd: 0 | 1; ex: 0 | 1; pk: string[]; rv: number; ep: number; bk: string[]; wt: 0 | 1; ac: number };
 export type Snapshot = {
   tick: number; panic: number; rats: RatSnap[];
-  hu: [number, HumanType, number, number, 1 | -1, HumanState, number][];
+  hu: [number, HumanType, number, number, 1 | -1, HumanState, number, number][];
   pg: [number, PigeonType, number, number, string, string][];
-  it: [number, string, number, number][];
+  it: [number, string, number, number, 0 | 1][];
   ex: [ExitType, number, number, 0 | 1][];
   cat: [number, number, number, 0 | 1] | null;
 };
 export function snapRat(r: Rat): RatSnap {
-  return { id: r.id, n: r.name, x: +r.x.toFixed(2), y: +r.y.toFixed(2), vx: +r.vx.toFixed(1), vy: +r.vy.toFixed(1), f: r.facing, g: r.grounded ? 1 : 0, b: +r.biteLeft.toFixed(3), cd: +r.biteCd.toFixed(3), cl: +r.coyoteLeft.toFixed(3), bl: +r.bufferLeft.toFixed(3), s: r.lastSeq, hp: Math.round(r.hp), dn: r.down ? 1 : 0, dl: +r.downLeft.toFixed(1), dd: r.dead ? 1 : 0, ex: r.exited ? 1 : 0, pk: r.pockets, rv: +r.revive.toFixed(2), ep: +r.exitProg.toFixed(2), bk: r.banked };
+  return { id: r.id, n: r.name, x: +r.x.toFixed(2), y: +r.y.toFixed(2), vx: +r.vx.toFixed(1), vy: +r.vy.toFixed(1), f: r.facing, g: r.grounded ? 1 : 0, b: +r.biteLeft.toFixed(3), cd: +r.biteCd.toFixed(3), cl: +r.coyoteLeft.toFixed(3), bl: +r.bufferLeft.toFixed(3), s: r.lastSeq, hp: Math.round(r.hp), dn: r.down ? 1 : 0, dl: +r.downLeft.toFixed(1), dd: r.dead ? 1 : 0, ex: r.exited ? 1 : 0, pk: r.pockets, rv: +r.revive.toFixed(2), ep: +r.exitProg.toFixed(2), bk: r.banked, wt: r.water ? 1 : 0, ac: +r.act.toFixed(2) };
 }
 export function applyRatSnap(r: Rat, s: RatSnap): void {
   r.x = s.x; r.y = s.y; r.vx = s.vx; r.vy = s.vy; r.facing = s.f; r.grounded = s.g === 1;
   r.biteLeft = s.b; r.biteCd = s.cd; r.coyoteLeft = s.cl; r.bufferLeft = s.bl; r.lastSeq = s.s;
-  r.hp = s.hp; r.down = s.dn === 1; r.downLeft = s.dl; r.dead = s.dd === 1; r.exited = s.ex === 1; r.pockets = s.pk; r.revive = s.rv; r.exitProg = s.ep; r.banked = s.bk; r.name = s.n;
+  r.hp = s.hp; r.down = s.dn === 1; r.downLeft = s.dl; r.dead = s.dd === 1; r.exited = s.ex === 1; r.pockets = s.pk; r.revive = s.rv; r.exitProg = s.ep; r.banked = s.bk; r.name = s.n; r.water = s.wt === 1; r.act = s.ac;
 }
 export function snapWorld(w: World): Snapshot {
   return {
     tick: w.tick, panic: +w.panic.toFixed(1),
     rats: [...w.rats.values()].map(snapRat),
-    hu: w.humans.map((h) => [h.id, h.type, Math.round(h.x), Math.round(h.y), h.facing, h.state, Math.round(h.hp)]),
+    hu: w.humans.map((h) => [h.id, h.type, Math.round(h.x), Math.round(h.y), h.facing, h.state, Math.round(h.hp), h.inf]),
     pg: w.pigeons.map((p) => [p.id, p.type, Math.round(p.x), Math.round(p.y), p.state, p.carry ?? '']),
-    it: w.items.map((i) => [i.id, i.kind, Math.round(i.x), Math.round(i.y)]),
+    it: w.items.map((i) => [i.id, i.kind, Math.round(i.x), Math.round(i.y), i.marked ? 1 : 0]),
     ex: w.level.exits.map((e) => [e.type, e.x, e.y, e.open ? 1 : 0]),
     cat: w.cat && w.cat.alive ? [Math.round(w.cat.x), Math.round(w.cat.y), Math.sign(w.cat.vx) || 1, 1] : null,
   };

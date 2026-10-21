@@ -66,7 +66,8 @@ function randomCode() { const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = '';
 
 function showJoin() { phase = 'join'; $('screenLobby').classList.add('open'); $('screenResults').classList.remove('open'); $('joinBox').style.display = ''; $('lobbyBox').style.display = 'none'; setControls(false); }
 function showLobby() { phase = 'lobby'; $('screenLobby').classList.add('open'); $('screenResults').classList.remove('open'); $('joinBox').style.display = 'none'; $('lobbyBox').style.display = ''; setControls(false); }
-function setControls(on: boolean) { touch.enabled = on; for (const id of ['jump', 'bite', 'act']) $(id).classList.toggle('vis', on); $('hud').classList.toggle('vis', on); $('rotate').classList.toggle('on', on); }
+function setControls(on: boolean) { touch.enabled = on; for (const id of ['jump', 'bite', 'act']) $(id).classList.toggle('vis', on); $('hud').classList.toggle('vis', on); $('rotate').classList.toggle('on', on); $('abort').style.display = on && lobby?.hostId === myId ? '' : 'none'; }
+$('abort').onclick = () => { if (confirm('Прервать Вылазку для всех? Добыча не вернувшихся пропадёт.')) net.send({ t: 'abort' }); };
 
 net.on('status', (t, closed) => { $('status').textContent = t; if (closed) { showJoin(); $('joinBox').insertAdjacentHTML('beforeend', `<div class="muted">${t}</div>`); } });
 net.on('welcome', (id) => { myId = id; });
@@ -103,7 +104,7 @@ net.on('events', (evs) => { for (const e of evs) onEvent(e); });
 
 function esc(s: string) { return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!)); }
 function makeRat(s: RatSnap): Rat {
-  const r: Rat = { id: s.id, name: s.n, x: s.x, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: 100, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, exitProg: 0, banked: [], hits: 0 };
+  const r: Rat = { id: s.id, name: s.n, x: s.x, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: 100, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, water: false, act: 0, exitProg: 0, banked: [], hits: 0 };
   applyRatSnap(r, s); return r;
 }
 function solidOthers() {
@@ -142,6 +143,11 @@ function onEvent(e: Event) {
     case 'steal': toast(`🐦 Голубь спёр ${e.a}`); break;
     case 'nofit': toast('Орган не пролазит в водосток'); break;
     case 'catdead': toast('Кот сдох'); break;
+    case 'drink': toast('Попила — теперь можно пометить еду (Действие у еды)'); break;
+    case 'mark': toast('Еда помечена. Ждём, кто съест…'); break;
+    case 'infect': toast(`🤢 ${e.a} заражён`); break;
+    case 'sick': toast(`${e.a} болеет — роняет Гной`); break;
+    case 'weak': toast(`${e.a} ослаб — добивай одна`); break;
   }
   if (e.x || e.y) fx(e);
 }
@@ -264,6 +270,8 @@ app.ticker.add(() => {
     v.g.alpha = me.inv > 0 && Math.floor(frame / 3) % 2 ? 0.4 : 1;
     v.bar.clear(); if (me.down) v.bar.rect(0, -6, 14 * (me.revive / RULES.reviveTime), 2).fill(0x6fb06f);
     else if (me.exitProg > 0) v.bar.rect(0, -6, 14 * me.exitProg, 2).fill(0xe8d9c0);
+    else if (me.act > 0) v.bar.rect(0, -6, 14 * me.act, 2).fill(0x7fd3ff);
+    if (me.water) v.bar.circle(16, -4, 2).fill(0x7fd3ff);
     camX = rx; camY = ry;
     if (me.exited || me.dead) { const alive = s1?.rats.find((r) => !r.dd && !r.ex && r.id !== myId); if (alive) { camX = alive.x; camY = alive.y; } }
   }
@@ -275,6 +283,7 @@ app.ticker.add(() => {
       const v = view('r' + r1.id); v.c.position.set(Math.round(x), Math.round(y)); v.label.text = r1.n; v.label.position.set(7, -3); seen.add('r' + r1.id);
       drawRat(v, { facing: r1.f, grounded: r1.g === 1, biting: r1.b > 0, down: r1.dn === 1, dead: r1.dd === 1, vx: r1.vx }, colorOf(r1.id), frame);
       v.bar.clear(); if (r1.dn) v.bar.rect(0, -6, 14 * (r1.rv / RULES.reviveTime), 2).fill(0x6fb06f);
+      if (r1.wt) v.bar.circle(16, -4, 2).fill(0x7fd3ff);
       v.c.visible = !r1.ex;
     }
     for (const h1 of s1.hu) {
@@ -290,7 +299,9 @@ app.ticker.add(() => {
       v.extra.visible = h1[1] === 'D';
       if (v.extra.visible) { v.extra.texture = tex('broom', BROOM); v.extra.anchor.set(0.5, 1); v.extra.position.set(info.w / 2 + h1[4] * 7, info.h); v.extra.scale.x = h1[4]; v.extra.rotation = h1[5] === 'windup' ? -h1[4] * 0.9 : h1[5] === 'chase' ? -h1[4] * 0.3 : 0; }
       v.c.position.set(Math.round(x), Math.round(y));
-      const ls = LABEL_STYLE[h1[5]]; v.label.text = ls?.text ?? ''; if (ls) { v.label.style.fill = ls.fill; v.label.style.fontSize = ls.size; } v.label.position.set(info.w / 2, -2);
+      const inf = h1[7]; v.sp.tint = inf === 0 ? 0xffffff : inf === 1 ? 0xd8f0c0 : inf === 2 ? 0xa8e088 : 0x70b060;
+      const ls = LABEL_STYLE[h1[5]] ?? (inf === 3 ? { text: 'ослаб', fill: 0x70e060, size: 7 } : inf === 2 ? { text: 'болеет', fill: 0xa0e080, size: 7 } : h1[5] === 'eat' ? { text: 'ням', fill: 0xffffff, size: 7 } : undefined);
+      v.label.text = ls?.text ?? ''; if (ls) { v.label.style.fill = ls.fill; v.label.style.fontSize = ls.size; } v.label.position.set(info.w / 2, -2);
       v.bar.clear(); if (h1[6] < info.hp) { v.bar.rect(0, -1, info.w, 1.5).fill(0x301010); v.bar.rect(0, -1, info.w * (h1[6] / info.hp), 1.5).fill(0xd04040); }
     }
     for (const p1 of s1.pg) {
@@ -307,7 +318,8 @@ app.ticker.add(() => {
     }
     for (const i1 of s1.it) {
       const v = view('i' + i1[0]); seen.add('i' + i1[0]);
-      v.sp.texture = itemTex(i1[1]); v.sp.tint = ITEM_TINT[i1[1]] ?? 0xffffff; v.sp.anchor.set(0, 0); v.sp.position.set(0, 0); v.sp.scale.x = 1;
+      v.sp.texture = itemTex(i1[1]); v.sp.tint = i1[4] ? 0xffe040 : ITEM_TINT[i1[1]] ?? 0xffffff; v.sp.anchor.set(0, 0); v.sp.position.set(0, 0); v.sp.scale.x = 1;
+      v.label.text = i1[4] ? '~' : ''; v.label.style.fill = 0xffe040; v.label.position.set(4, -1);
       v.c.position.set(i1[2], i1[3] - 1 + Math.round(Math.sin((frame + i1[0] * 7) / 20)));
     }
     for (const e of s1.ex) {
