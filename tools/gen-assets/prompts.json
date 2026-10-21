@@ -236,6 +236,202 @@
       },
       "colors": 12,
       "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_nora_far",
+      "group": "nora",
+      "prompt": "Parallax background layer, FAR plane, for the rats' underground BURROW home hub (a cozy nest called the Nora): the inside of an earthen burrow seen from the side - soft, rounded, organic dark-brown soil walls and a low vaulted earthen ceiling with NO straight lines, corners or bricks, pale tree roots snaking through the soil, a few embedded pebbles and an old chicken bone, a warm orange-yellow glow from a stubby candle in a bottle cap and a small tin oil lamp hanging from a root, tattered rags and a patchwork curtain hung on the roots, two glass jars on a soil ledge, a rusty water pipe crossing the ceiling with a drip, a string of tiny warm lights made of fairy-light bulbs. Warm, cozy, homely mood like a hobbit hole for rats. NO floor, NO ground line, NO foreground furniture: the soil wall fills the whole image from top to bottom (the game draws the floor over the bottom 20%). Opaque. Horizontally tileable: left and right edges match seamlessly. Wide 16:9 composition. Palette: dark umber, warm brown, ochre, tan roots, warm orange lamp glow, dull green jar glass, 16 colors total.",
+      "size": "1536x1024",
+      "background": "opaque",
+      "crop": "cover",
+      "target": {
+        "w": 480,
+        "h": 270
+      },
+      "colors": 16,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "st_cauldron",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 40 columns by 32 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A heavy black cast-iron cooking pot (cauldron) with two side handles hanging from a crooked stick over a small campfire of twigs with orange flames; the pot is full of bubbling toxic green liquid with three round green bubbles popping above the rim and tiny steam wisps. Palette: black iron, dark grey highlight, orange and yellow fire, three acid greens, brown twigs, 14 colors total.",
+      "size": "1280x1024",
+      "background": "transparent",
+      "target": {
+        "w": 40,
+        "h": 32
+      },
+      "colors": 14,
+      "kernel": "nearest"
+    },
+    {
+      "id": "st_potion_shelf",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 96 columns by 32 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A long crooked wooden plank shelf fixed to the wall with two bracket supports, holding exactly SIX different small bottles and flasks standing in a row (a round flask, a tall bottle, a square jar, a corked vial, a bulb bottle, a dented tin can) with liquids of different colors (green, red, blue, yellow, orange, teal), a tiny cobweb under one end. Palette: brown wood, dark brown, the six liquid colors, grey cork and glass highlights, 16 colors total.",
+      "size": "3072x1024",
+      "background": "transparent",
+      "target": {
+        "w": 96,
+        "h": 32
+      },
+      "colors": 16,
+      "kernel": "nearest"
+    },
+    {
+      "id": "st_map_table",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 48 columns by 32 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A wooden crate used as a table; on top lies a spread-out hand-drawn parchment map with a dotted route and a red X, a stubby lit candle in a bottle cap with a small flame, and a pencil stub. Palette: brown crate wood, dark brown, parchment cream, dark ink, red X, white candle, orange and yellow flame, 14 colors total.",
+      "size": "1536x1024",
+      "background": "transparent",
+      "target": {
+        "w": 48,
+        "h": 32
+      },
+      "colors": 14,
+      "kernel": "nearest"
+    },
+    {
+      "id": "st_pockets_rack",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 40 columns by 28 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A small wooden coat-rack stand made of a forked twig on a flat base, with three tiny rat-sized cloth pouches and one satchel hanging from its pegs by strings, one pouch patched. Palette: brown wood, burlap tan, dark olive canvas, grey string, red patch, 12 colors total.",
+      "size": "1280x896",
+      "background": "transparent",
+      "target": {
+        "w": 40,
+        "h": 28
+      },
+      "colors": 12,
+      "kernel": "nearest"
+    },
+    {
+      "id": "st_tunnel_exit",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 40 columns by 48 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A dark round tunnel mouth dug into brown earth: a roughly circular opening with an uneven earthen rim, a few root ends sticking out, the inside pitch black fading from dark brown at the rim; a small wooden plank sign hangs above the opening on two strings with a scratched arrow (no letters). Palette: dark umber, brown, tan rim, black hole, plank wood, grey string, 12 colors total.",
+      "size": "1280x1536",
+      "background": "transparent",
+      "target": {
+        "w": 40,
+        "h": 48
+      },
+      "colors": 12,
+      "kernel": "nearest"
+    },
+    {
+      "id": "st_construction",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 40 columns by 28 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A small construction site: rough wooden planks stacked crosswise, a few loose bent nails, a tiny hammer, a coil of string, sawdust, and a tiny plank sign on a stick with a scribbled mark (no letters). Palette: light and dark plank wood, grey nails, red hammer handle, 12 colors total.",
+      "size": "1280x896",
+      "background": "transparent",
+      "target": {
+        "w": 40,
+        "h": 28
+      },
+      "colors": 12,
+      "kernel": "nearest"
+    },
+    {
+      "id": "dec_rag_bed",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 24 columns by 24 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A small round nest-bed for a rat made of torn rags and a patch of straw, cozy, viewed from the side slightly from above. Palette: dusty red rag, grey rag, straw yellow, brown, 10 colors total.",
+      "size": "1024x1024",
+      "background": "transparent",
+      "target": {
+        "w": 24,
+        "h": 24
+      },
+      "colors": 10,
+      "kernel": "nearest"
+    },
+    {
+      "id": "dec_candles",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 24 columns by 24 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. Three stubby melted candles of different heights stuck in a bottle cap and on a pebble, lit with small orange flames. Palette: cream wax, white drips, orange and yellow flames, dark grey cap, 10 colors total.",
+      "size": "1024x1024",
+      "background": "transparent",
+      "target": {
+        "w": 24,
+        "h": 24
+      },
+      "colors": 10,
+      "kernel": "nearest"
+    },
+    {
+      "id": "dec_pickle_jar",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 24 columns by 24 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A glass jar with a tin lid full of green pickled cucumbers in cloudy brine, one highlight on the glass. Palette: pale blue-grey glass, dark green and light green pickles, murky yellow-green brine, tin grey lid, 10 colors total.",
+      "size": "1024x1024",
+      "background": "transparent",
+      "target": {
+        "w": 24,
+        "h": 24
+      },
+      "colors": 10,
+      "kernel": "nearest"
+    },
+    {
+      "id": "dec_root_bundle",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 24 columns by 24 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A bundle of pale tree roots tied together with a string, hanging from a bent nail, with a few thin root hairs. Palette: tan, pale beige, dark brown string, grey nail, 8 colors total.",
+      "size": "1024x1024",
+      "background": "transparent",
+      "target": {
+        "w": 24,
+        "h": 24
+      },
+      "colors": 8,
+      "kernel": "nearest"
+    },
+    {
+      "id": "st_pockets_rack_v2",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 40 columns by 28 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A small wooden coat-rack stand made of a forked twig on a flat base, with three tiny rat-sized cloth pouches and one satchel hanging from its pegs by strings, one pouch patched. Palette: brown wood, burlap tan, dark olive canvas, grey string, red patch, 12 colors total. IMPORTANT for readability at tiny size: draw CHUNKY, thick, simplified shapes as if the whole picture had only that many real pixels - no thin lines, no strings thinner than one cell, no tiny details, every part of the object at least 3 cells thick, solid filled silhouettes, big bold color areas, high contrast between parts.",
+      "size": "1280x896",
+      "background": "transparent",
+      "target": {
+        "w": 40,
+        "h": 28
+      },
+      "colors": 12,
+      "kernel": "nearest"
+    },
+    {
+      "id": "st_construction_v2",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 40 columns by 28 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A small construction site: rough wooden planks stacked crosswise, a few loose bent nails, a tiny hammer, a coil of string, sawdust, and a tiny plank sign on a stick with a scribbled mark (no letters). Palette: light and dark plank wood, grey nails, red hammer handle, 12 colors total. IMPORTANT for readability at tiny size: draw CHUNKY, thick, simplified shapes as if the whole picture had only that many real pixels - no thin lines, no strings thinner than one cell, no tiny details, every part of the object at least 3 cells thick, solid filled silhouettes, big bold color areas, high contrast between parts.",
+      "size": "1280x896",
+      "background": "transparent",
+      "target": {
+        "w": 40,
+        "h": 28
+      },
+      "colors": 12,
+      "kernel": "nearest"
+    },
+    {
+      "id": "dec_root_bundle_v2",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 24 columns by 24 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A bundle of pale tree roots tied together with a string, hanging from a bent nail, with a few thin root hairs. Palette: tan, pale beige, dark brown string, grey nail, 8 colors total. IMPORTANT for readability at tiny size: draw CHUNKY, thick, simplified shapes as if the whole picture had only that many real pixels - no thin lines, no strings thinner than one cell, no tiny details, every part of the object at least 3 cells thick, solid filled silhouettes, big bold color areas, high contrast between parts.",
+      "size": "1024x1024",
+      "background": "transparent",
+      "target": {
+        "w": 24,
+        "h": 24
+      },
+      "colors": 8,
+      "kernel": "nearest"
+    },
+    {
+      "id": "dec_rag_bed_v2",
+      "group": "nora",
+      "prompt": "A single game object sprite, side view, isolated and centered on a flat solid magenta #FF00FF background (chroma key: fill the entire background with that one magenta and use no magenta, pink or purple anywhere on the object). The canvas is a coarse grid of exactly 24 columns by 24 rows of big square cells; every cell is exactly ONE flat color with no sub-cell detail, all shapes snap to this cell grid, 1-cell dark outline around the object. The object fills about 90% of the canvas. A small round nest-bed for a rat made of torn rags and a patch of straw, cozy, viewed from the side slightly from above. Palette: dusty red rag, grey rag, straw yellow, brown, 10 colors total. IMPORTANT for readability at tiny size: draw CHUNKY, thick, simplified shapes as if the whole picture had only that many real pixels - no thin lines, no strings thinner than one cell, no tiny details, every part of the object at least 3 cells thick, solid filled silhouettes, big bold color areas, high contrast between parts.",
+      "size": "1024x1024",
+      "background": "transparent",
+      "target": {
+        "w": 24,
+        "h": 24
+      },
+      "colors": 10,
+      "kernel": "nearest"
     }
   ]
 }

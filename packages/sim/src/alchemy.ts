@@ -49,8 +49,9 @@ export const geneMul = (dna: DNA, p: Prop) => 0.5 + (dna[p] ?? 0) / 100;
 export type RatMods = {
   speed: number; jump: number; biteDmg: number; maxHp: number; pockets: number; regen: number;
   wallJump: 0 | 1 | 2 | 3; infect: number; scare: number; stink: 0 | 1 | 2 | 3; stompHalf: boolean;
+  strength: number; // сила: сколько «единиц массы» тянет одна крыса (тяжёлый Орган — 3)
 };
-export const BASE_MODS: RatMods = { speed: 1, jump: 1, biteDmg: 1, maxHp: 1, pockets: 0, regen: 0, wallJump: 0, infect: 0, scare: 0, stink: 0, stompHalf: false };
+export const BASE_MODS: RatMods = { speed: 1, jump: 1, biteDmg: 1, maxHp: 1, pockets: 0, regen: 0, wallJump: 0, infect: 0, scare: 0, stink: 0, stompHalf: false, strength: 1 };
 export function ratMods(dna: DNA, mut: Mutations): RatMods {
   const m = { ...BASE_MODS };
   const t = (p: Prop) => mut[p] ?? 0, g = (p: Prop) => geneMul(dna, p);
@@ -62,23 +63,25 @@ export function ratMods(dna: DNA, mut: Mutations): RatMods {
   if (t('Заразное')) m.infect = [0, 0.1, 0.25, 0.5][Math.min(3, t('Заразное'))] * g('Заразное');
   if (t('Шумное')) m.scare = [0, 3, 5, 8][Math.min(3, t('Шумное'))] * g('Шумное');
   if (t('Липкое')) m.wallJump = Math.min(3, t('Липкое')) as 0 | 1 | 2 | 3;
+  m.strength = 1 + 0.5 * t('Жирное') * g('Жирное') + 0.3 * Math.min(3, t('Живое')) * g('Живое'); // жирная и живучая тянут больше
   return m;
 }
 export const MUTATION_NAMES: Record<Prop, string> = { Едкое: 'Кислотная пасть', Гнилое: 'Вонючка', Живое: 'Живучка', Сладкое: 'Сахарная', Жирное: 'Жирная мышь', Заразное: 'Чумная', Шумное: 'Визгунья', Липкое: 'Липучка' };
 export const MUTATION_DESC: Record<Prop, string[]> = {
   Едкое: ['укус ×1.5', 'укус ×2', 'укус ×3'], Гнилое: ['Воришки облетают', 'все Голуби облетают', 'все Голуби облетают, Люди брезгуют'],
-  Живое: ['+25 % HP', '+50 % HP, регенерация на земле', '+100 % HP, регенерация'], Сладкое: ['скорость +10 %', '+20 %, прыжок выше', '+30 %, прыжок выше'],
-  Жирное: ['+1 карман, −5 % скорости', '+2, −10 %', '+3, −15 %, топот вдвое слабее; дальше без предела'], Заразное: ['укус заражает 10 %', '25 %', '50 %'],
+  Живое: ['+25 % HP, +30 % силы', '+50 % HP, регенерация, +60 % силы', '+100 % HP, регенерация, +90 % силы'], Сладкое: ['скорость +10 %', '+20 %, прыжок выше', '+30 %, прыжок выше'],
+  Жирное: ['+1 карман, +50 % силы, −5 % скорости', '+2, +100 % силы, −10 %', '+3, +150 % силы, −15 %, топот вдвое слабее; дальше без предела'], Заразное: ['укус заражает 10 %', '25 %', '50 %'],
   Шумное: ['укус пугает Людей в 3 тайлах', 'в 5', 'в 8'], Липкое: ['прыжок от стены', 'скольжение по стене', 'скольжение по стене'],
 };
 
 // ---------- Модификаторы Вылазки (вылить Зелье на карту) ----------
 export type RaidMods = {
   biteMul: number; panicMul: number; panicStart: number; slippery: number; contagionMul: number; stageMul: number; noticeMul: number;
-  humanSpeedMul: number; pigeonsGrounded: boolean; extraP: number; extraK: number; extraV: number; extraFood: number; extraTrash: number; acid: number; sticky: number;
-  names: string[];
+  humanSpeedMul: number; pigeonsGrounded: boolean; extraP: number; extraK: number; extraV: number; extraF: number; extraFood: number; extraTrash: number; extraWater: number; acid: number; sticky: number;
+  noDvornik: boolean; panicKidMul: number; catAt: number; rareOrgan: boolean; sleepers: boolean; hungry: boolean;
+  names: string[]; affixes: string[]; visuals: string[];
 };
-export const BASE_RAID: RaidMods = { biteMul: 1, panicMul: 1, panicStart: 0, slippery: 0, contagionMul: 1, stageMul: 1, noticeMul: 1, humanSpeedMul: 1, pigeonsGrounded: false, extraP: 0, extraK: 0, extraV: 0, extraFood: 0, extraTrash: 0, acid: 0, sticky: 0, names: [] };
+export const BASE_RAID: RaidMods = { biteMul: 1, panicMul: 1, panicStart: 0, slippery: 0, contagionMul: 1, stageMul: 1, noticeMul: 1, humanSpeedMul: 1, pigeonsGrounded: false, extraP: 0, extraK: 0, extraV: 0, extraF: 0, extraFood: 0, extraTrash: 0, extraWater: 0, acid: 0, sticky: 0, noDvornik: false, panicKidMul: 1, catAt: 60, rareOrgan: false, sleepers: false, hungry: false, names: [], affixes: [], visuals: [] };
 export const MODIFIER_NAMES: Record<Prop, string> = { Едкое: 'Кислотный дождь', Гнилое: 'Помойный день', Живое: 'Час пик', Сладкое: 'Праздник во дворе', Жирное: 'Масляный гололёд', Заразное: 'Эпидемия', Шумное: 'Салют', Липкое: 'Жвачка везде' };
 export const MODIFIER_DESC: Record<Prop, string> = {
   Едкое: 'лужи кислоты жгут крыс; укусы сильнее', Гнилое: 'Голубей-воришек больше; Люди брезгуют гнаться; Мусора больше', Живое: 'Людей больше, Переполох быстрее; больше Органов',
@@ -86,7 +89,7 @@ export const MODIFIER_DESC: Record<Prop, string> = {
   Шумное: 'Переполох стартует выше, но Люди оглушены — замечают только вплотную', Липкое: 'Люди и Голуби вязнут; крысы — чуть-чуть',
 };
 export function raidMods(potions: Potion[]): RaidMods {
-  const m: RaidMods = { ...BASE_RAID, names: [] };
+  const m: RaidMods = { ...BASE_RAID, names: [], affixes: [], visuals: [] };
   const sum: Partial<Record<Prop, number>> = {};
   for (const p of potions) for (const pr of PROPS) if (p.props[pr]) sum[pr] = (sum[pr] ?? 0) + p.props[pr]!;
   for (const pr of PROPS) {

@@ -1,7 +1,7 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
-import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, stepRat, applyRatSnap, PHYS, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
+import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, AFFIXES, HEAVY_W, HEAVY_H, itemSize, stepRat, applyRatSnap, PHYS, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
 import { Touch } from './input';
 import { Net, type LobbyMsg, type ResultsMsg, type PubProfile } from './net';
 import { Audio, falloff } from './audio';
@@ -87,7 +87,7 @@ let openStation: StationId | null = null;
 let ratSheetId: string | null = null;
 let profiles: Record<string, PubProfile> = {};
 function enterNora() {
-  phase = 'lobby'; audio.setMusic('nora');
+  phase = 'lobby'; audio.setMusic('nora'); document.body.classList.remove('inraid'); $('weather').className = ''; $('banner').classList.remove('on');
   level = noraLevel();
   me = null; pendingInputs = []; lastServerMe = null; snaps = []; raidModsCur = BASE_RAID; // seq НЕ сбрасываем: старые пакеты в полёте иначе блокируют ввод
   buildLevel(level, 'nora');
@@ -292,7 +292,14 @@ net.on('raid', (map, seed, mods, ratMods) => {
   buildLevel(level, map);
   $('screenLobby').classList.remove('open'); $('screenResults').classList.remove('open');
   setControls(true);
-  toast(raidModsCur.names.length ? `${MAPS[map].name} · ${raidModsCur.names.join(', ')}` : `${MAPS[map].name}: собрать и дойти до Выхода`);
+  document.body.classList.add('inraid');
+  // баннер карты: врождённые аффиксы + вылитые Зелья, погода
+  const aff = (raidModsCur.affixes ?? []).map((id) => AFFIXES.find((a) => a.id === id)).filter(Boolean) as typeof AFFIXES;
+  const potionMods = raidModsCur.names.filter((n) => !aff.some((a) => a.name === n));
+  $('banner').innerHTML = `<h2>${MAPS[map].name}</h2>${aff.map((a) => `<div><b>${a.name}</b> — ${a.desc}</div>`).join('')}${potionMods.length ? `<div>🧪 Зелья: ${potionMods.join(', ')}</div>` : ''}`;
+  $('banner').classList.add('on'); setTimeout(() => $('banner').classList.remove('on'), 5000);
+  $('affix').innerHTML = [...aff.map((a) => a.name), ...potionMods.map((n) => '🧪 ' + n)].map((n) => `<span>${n}</span>`).join('');
+  $('weather').className = (raidModsCur.visuals ?? []).join(' ');
 });
 net.on('results', (m) => showResults(m));
 net.on('nora', (m) => { nora = m; updateStations(); if (openStation) renderSheet(); });
@@ -312,7 +319,7 @@ net.on('events', (evs) => { for (const e of evs) onEvent(e); });
 
 function esc(s: string) { return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!)); }
 function makeRat(s: RatSnap): Rat {
-  const r: Rat = { id: s.id, name: s.n, x: s.x, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: 100, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, water: false, act: 0, exitProg: 0, banked: [], hits: 0, mods: BASE_MODS, maxHp: 100 };
+  const r: Rat = { id: s.id, name: s.n, x: s.x, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: 100, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, water: false, act: 0, exitProg: 0, banked: [], hits: 0, mods: BASE_MODS, maxHp: 100, carry: null, grab: null, dragMul: 1 };
   applyRatSnap(r, s); return r;
 }
 function solidOthers() {
@@ -330,7 +337,7 @@ function reconcile(rs: RatSnap) {
 // ---------- итоги ----------
 import { ITEM_PROPS as ITEM_PROPS_LOCAL } from '@krysy/sim';
 function showResults(m: ResultsMsg) {
-  phase = 'results'; setControls(false); audio.setMusic('none');
+  phase = 'results'; setControls(false); audio.setMusic('none'); document.body.classList.remove('inraid'); $('weather').className = '';
   const rows = m.rows.map((r) => `<tr><td>${r.exited ? '🏁' : '💀'} ${esc(r.name)}</td><td>${r.exited ? 'вынесла' : 'не вернулась'}</td><td>${r.loot.map((k) => `<img src="${itemIcon(k)}" title="${KINDS[k]?.name ?? k}" style="width:16px;height:16px;vertical-align:middle"/>`).join(' ') || '—'}</td></tr>`).join('');
   $('resultsBody').innerHTML = `<div class="muted">${MAPS[m.map]?.name ?? m.map} · Переполох ${m.panic} %</div><table><tr><th>Крыса</th><th></th><th>Добыча</th></tr>${rows}</table>`;
   $('resultsNote').textContent = 'Добыча вынесших уже на Складе Стаи — вари Зелья в Норе.';
@@ -340,7 +347,7 @@ function showResults(m: ResultsMsg) {
 // ---------- события → тосты ----------
 let toastTimer = 0;
 function toast(t: string) { const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove('on'), 2200); }
-const EVENT_SFX: Record<string, string> = { hit: 'hit', hurt: 'hurt', pick: 'pick', stomp: 'stomp', swing: 'swing', scream: 'scream', panic: 'panic', steal: 'steal', pigeondead: 'pigeondead', kill: 'kill', cat: 'cat', drink: 'drink', mark: 'mark', eat: 'eat', infect: 'infect', sick: 'sick', weak: 'sick', down: 'down', dead: 'dead', revive: 'revive', exit: 'exit', luk: 'luk', stage: 'stage', nofit: 'nofit', catdead: 'kill' };
+const EVENT_SFX: Record<string, string> = { grab: 'drop', drop: 'drop', hit: 'hit', hurt: 'hurt', pick: 'pick', stomp: 'stomp', swing: 'swing', scream: 'scream', panic: 'panic', steal: 'steal', pigeondead: 'pigeondead', kill: 'kill', cat: 'cat', drink: 'drink', mark: 'mark', eat: 'eat', infect: 'infect', sick: 'sick', weak: 'sick', down: 'down', dead: 'dead', revive: 'revive', exit: 'exit', luk: 'luk', stage: 'stage', nofit: 'nofit', catdead: 'kill' };
 function onEvent(e: Event) {
   const sfx = EVENT_SFX[e.k];
   if (sfx) { const g = e.x || e.y ? (me ? falloff(e.x - me.x, e.y - me.y) : 0.5) : 1; audio.play(sfx, g); }
@@ -360,6 +367,7 @@ function onEvent(e: Event) {
     case 'infect': toast(`🤢 ${e.a} заражён`); break;
     case 'sick': toast(`${e.a} болеет — роняет Гной`); break;
     case 'weak': toast(`${e.a} ослаб — добивай одна`); break;
+    case 'grab': toast(`Тащим: ${e.a}. Тяжело — зови напарника`); break;
   }
   if (e.x || e.y) fx(e);
 }
@@ -501,6 +509,7 @@ function fx(e: Event) {
     case 'cat': mk('МЯУ', 0xffa040, 10); break;
   }
 }
+function showCarry(v: View, kind: string | null, facing: 1 | -1) { if (!kind) return; v.extra.visible = true; v.extra.texture = itemTex(kind); v.extra.tint = ITEM_TINT[kind] ?? 0xffffff; v.extra.anchor.set(0.5, 0.5); v.extra.position.set(facing > 0 ? 17 : -3, 4); v.extra.scale.set(1.1); v.extra.rotation = 0; }
 function itemTex(kind: string): Texture { const k = KINDS[kind]; return k ? tex('item_' + k.type, ITEM[k.type]) : Texture.EMPTY; }
 
 // ---------- цикл ----------
@@ -541,6 +550,7 @@ app.ticker.add(() => {
     const v = view('r' + myId); v.c.position.set(Math.round(rx), Math.round(ry)); v.label.text = ''; seen.add('r' + myId);
     drawRat(v, { facing: me.facing, grounded: me.grounded, biting: me.biteLeft > 0, down: me.down, dead: me.dead, vx: me.vx, biteT: me.biteLeft / PHYS.biteDur }, colorOf(myId), frame, lookOf(myId));
     v.g.alpha = me.inv > 0 && Math.floor(frame / 3) % 2 ? 0.4 : 1;
+    showCarry(v, me.carry, me.facing);
     v.bar.clear(); if (me.down) v.bar.rect(0, -6, 14 * (me.revive / RULES.reviveTime), 2).fill(0x6fb06f);
     else if (me.exitProg > 0) v.bar.rect(0, -6, 14 * me.exitProg, 2).fill(0xe8d9c0);
     else if (me.act > 0) v.bar.rect(0, -6, 14 * me.act, 2).fill(0x7fd3ff);
@@ -558,6 +568,7 @@ app.ticker.add(() => {
       const x = r0.x + (r1.x - r0.x) * t, y = r0.y + (r1.y - r0.y) * t;
       const v = view('r' + r1.id); v.c.position.set(Math.round(x), Math.round(y)); v.label.text = r1.n; v.label.position.set(7, -3); seen.add('r' + r1.id);
       drawRat(v, { facing: r1.f, grounded: r1.g === 1, biting: r1.b > 0, down: r1.dn === 1, dead: r1.dd === 1, vx: r1.vx, biteT: r1.b / PHYS.biteDur }, colorOf(r1.id), frame, lookOf(r1.id));
+      showCarry(v, r1.cr || null, r1.f);
       v.bar.clear(); if (r1.dn) v.bar.rect(0, -6, 14 * (r1.rv / RULES.reviveTime), 2).fill(0x6fb06f);
       if (r1.wt) v.bar.circle(16, -4, 2).fill(0x7fd3ff);
       v.c.visible = !r1.ex;
@@ -594,9 +605,16 @@ app.ticker.add(() => {
     }
     for (const i1 of s1.it) {
       const v = view('i' + i1[0]); seen.add('i' + i1[0]);
-      v.sp.texture = itemTex(i1[1]); v.sp.tint = i1[4] ? 0xffe040 : ITEM_TINT[i1[1]] ?? 0xffffff; v.sp.anchor.set(0, 0); v.sp.position.set(0, 0); v.sp.scale.x = 1;
-      v.label.text = i1[4] ? '~' : ''; v.label.style.fill = 0xffe040; v.label.position.set(4, -1);
-      v.c.position.set(i1[2], i1[3] - 1 + Math.round(Math.sin((frame + i1[0] * 7) / 20)));
+      const sz = itemSize(i1[1]);
+      v.sp.texture = itemTex(i1[1]); v.sp.tint = i1[4] ? 0xffe040 : ITEM_TINT[i1[1]] ?? 0xffffff; v.sp.anchor.set(0, 0); v.sp.scale.set(sz === 3 ? 1.6 : sz === 2 ? 1.25 : 1);
+      v.g.clear();
+      if (sz === 3) { // тяжёлое: ящик-тело, за которое держатся
+        v.g.roundRect(0, 0, HEAVY_W, HEAVY_H, 2).fill(0x4a3626).stroke({ width: 1, color: 0x8a6a4a }); v.g.rect(2, 2, HEAVY_W - 4, 1).fill(0x6a4a2a);
+        v.sp.position.set(2, -4);
+        v.label.text = i1[5] ? `тащат: ${i1[5]}` : 'тяжёлое — держи ДЕЙСТ.'; v.label.style.fill = i1[5] ? 0xffe066 : 0xe8d9c0; v.label.style.fontSize = 6; v.label.position.set(HEAVY_W / 2, -5);
+      } else if (sz === 2) { v.sp.position.set(0, 0); v.label.text = 'в зубы: ДЕЙСТ.'; v.label.style.fill = 0xe8d9c0; v.label.style.fontSize = 6; v.label.position.set(5, -1); }
+      else { v.sp.position.set(0, 0); v.label.text = i1[4] ? '~' : ''; v.label.style.fill = 0xffe040; v.label.style.fontSize = 7; v.label.position.set(4, -1); }
+      v.c.position.set(i1[2], sz === 3 ? i1[3] : i1[3] - 1 + Math.round(Math.sin((frame + i1[0] * 7) / 20)));
     }
     for (const e of s1.ex) {
       const key = 'e' + e[0] + e[1]; const v = view(key); seen.add(key);
@@ -625,15 +643,24 @@ app.ticker.add(() => {
       if (meS) {
         $('hpFill').style.width = Math.round((meS.hp / (meS.mh || 100)) * 100) + '%';
         $('hpFill').style.background = meS.hp > 50 ? '#6fb06f' : meS.hp > 25 ? '#d0a040' : '#d04040';
-        const key = meS.pk.join(',');
+        const key = meS.pk.join(',') + '|' + meS.cr + '|' + meS.gb + '|' + meS.dm;
         if (key !== lastPocketsKey) {
           lastPocketsKey = key;
           let cells = ''; let used = 0;
           for (const k of meS.pk) { const kd = KINDS[k]; used += kd.size; cells += `<span class="full t-${kd.type}" style="height:${26 * kd.size + 2 * (kd.size - 1)}px"><img src="${itemIcon(k, 3)}" alt="${kd.name}"/><i>${kd.name}</i>${kd.size > 1 ? `<em>×${kd.size}</em>` : ''}</span>`; }
           for (let i = used; i < (meS.pc ?? RULES.pockets); i++) cells += '<span><em>пусто</em></span>';
+          if (meS.cr) cells += `<span class="full t-${KINDS[meS.cr].type}" style="border-style:double"><img src="${itemIcon(meS.cr, 3)}"/><i>в зубах: ${KINDS[meS.cr].name}</i></span>`;
+          if (meS.gb >= 0) cells += `<span class="full t-organ" style="border-style:dashed"><i>тащим · скорость ${Math.round((meS.dm ?? 1) * 100)}%</i></span>`;
           $('pockets').innerHTML = cells;
         }
         $('info').textContent = `${meS.dn ? `лежишь ${meS.dl.toFixed(0)} с · ` : ''}${meS.ex ? 'вынесла · ' : ''}${meS.dd ? 'погибла · ' : ''}ping ${net.rtt} · ${Math.round(app.ticker.FPS)} fps`;
+        // подсказка про лут рядом
+        if (me && !me.down) {
+          let hint = '';
+          for (const it of s1.it) { const sz = itemSize(it[1]); if (sz === 1) continue; const d = Math.hypot(it[2] + 8 - (me.x + 7), it[3] + 4 - (me.y + 5)); if (d < 26) { hint = sz === 3 ? `${KINDS[it[1]].name}: тяжёлое — держи ДЕЙСТ. и тащи к Щели (сила ${me.mods.strength.toFixed(1)}/3)` : `${KINDS[it[1]].name}: ДЕЙСТ. — взять в зубы`; break; } }
+          if (!hint && me.carry) hint = `В зубах ${KINDS[me.carry].name} · ДЕЙСТ. — выплюнуть`;
+          $('hint').textContent = hint;
+        }
       }
     }
   }
