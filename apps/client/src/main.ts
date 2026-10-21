@@ -1,5 +1,7 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+import { sheet, preloadSheets, humanFrame, RAT_CELL, type RatFamily } from './sheets';
+import { PROP_META } from './alchemy-ui';
 import { stashHtml, cauldronHtml, shelfHtml, ratCardHtml, drinkModalHtml, revealHtml, stashTotalsText, type Ctx as UiCtx } from './alchemy-ui';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
 import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, AFFIXES, HEAVY_W, HEAVY_H, itemSize, stepRat, applyRatSnap, PHYS, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
@@ -197,12 +199,12 @@ function lookOf(id: string, over?: Record<string, number>): Look { const m = ove
 function openRatSheet(id: string) { audio.play('ui'); openStation = null; ratSheetId = id; $('sheet').classList.add('open'); $('sheet').classList.add('big'); renderRatSheet(id); }
 /** Портрет крысы: та же векторная крыса с её Мутациями, отрисованная в текстуру и увеличенная пиксель-в-пиксель */
 function ratPortrait(id: string, frame: number, mutOver?: Record<string, number>): string {
-  const c = new Container(); const g = new Graphics(); c.addChild(g);
-  const v = { c, sp: new Sprite(Texture.EMPTY), extra: new Sprite(Texture.EMPTY), g, label: new Text({ text: '' }), bar: new Graphics(), anim: 0 } as View;
+  const c = new Container(); const g = new Graphics(); const sp = new Sprite(Texture.EMPTY); c.addChild(sp, g);
+  const v = { c, sp, extra: new Sprite(Texture.EMPTY), g, label: new Text({ text: '' }), bar: new Graphics(), anim: 0 } as View;
   g.position.set(14, 10);
   drawRat(v, { facing: 1, grounded: true, biting: false, down: false, dead: false, vx: 0 }, colorOf(id), frame, lookOf(id, mutOver));
   const frameG = new Graphics(); frameG.rect(0, 0, 44, 26).fill({ color: 0x000000, alpha: 0 }); c.addChildAt(frameG, 0);
-  const cv = app.renderer.extract.canvas({ target: c, resolution: 1, frame: new Rectangle(0, 0, 44, 26) }) as HTMLCanvasElement;
+  const cv = app.renderer.extract.canvas({ target: c, resolution: 2, frame: new Rectangle(0, 0, 44, 26) }) as HTMLCanvasElement;
   c.destroy({ children: true });
   return cv.toDataURL();
 }
@@ -401,6 +403,7 @@ function onEvent(e: Event) {
 // ---------- рендер ----------
 const app = new Application();
 await app.init({ canvas: $('game') as HTMLCanvasElement, resizeTo: window, background: '#1a1612', antialias: false, resolution: Math.min(2, devicePixelRatio || 1), autoDensity: true, roundPixels: true });
+preloadSheets();
 const bgStage = new Container(); app.stage.addChild(bgStage); // параллакс-фон (сгенерированные слои), экранные координаты
 const stage = new Container(); app.stage.addChild(stage);
 let levelSprite: Sprite | null = null;
@@ -461,7 +464,37 @@ const NO_LOOK: Look = { fat: 0, acid: 0, alive: 0, sweet: 0, infect: 0, loud: 0,
 function mix(a: number, b: number, k: number) { k = Math.min(1, k); const ch = (x: number, s: number) => (x >> s) & 255; const r = Math.round(ch(a, 16) * (1 - k) + ch(b, 16) * k), g = Math.round(ch(a, 8) * (1 - k) + ch(b, 8) * k), bl = Math.round(ch(a, 0) * (1 - k) + ch(b, 0) * k); return (r << 16) | (g << 8) | bl; }
 const colorOf = (id: string) => COLORS[(Number(id) - 1 + 600) % COLORS.length];
 // крыса — векторная, как в прототипах (пользователю она нравится больше спрайта)
-function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolean; down: boolean; dead: boolean; vx: number; biteT?: number }, color: number, t: number, look: Look = NO_LOOK) {
+/** Семейство для спрайт-листа: самая высокая Ступень; при равенстве — более заметная внешне */
+const FAMILY_ORDER: [keyof Look, RatFamily, Prop][] = [['fat', 'fat', 'Жирное'], ['rot', 'rot', 'Гнилое'], ['sweet', 'sweet', 'Сладкое'], ['alive', 'alive', 'Живое'], ['acid', 'acid', 'Едкое'], ['infect', 'infect', 'Заразное'], ['loud', 'loud', 'Шумное'], ['sticky', 'sticky', 'Липкое']];
+function sheetFamily(look: Look): { fam: RatFamily; key: keyof Look | null; tier: number; prop: Prop | null } {
+  let best: { fam: RatFamily; key: keyof Look | null; tier: number; prop: Prop | null } = { fam: 'base', key: null, tier: 0, prop: null };
+  for (const [k, fam, prop] of FAMILY_ORDER) if (look[k] > best.tier) best = { fam, key: k, tier: look[k], prop };
+  return best;
+}
+type RatPose = { facing: 1 | -1; grounded: boolean; biting: boolean; down: boolean; dead: boolean; vx: number; biteT?: number };
+/** Крыса из спрайт-листа семейства (если лист загружен): кадр по состоянию, оттенок игрока, кольцо Ступени, мелочи от второстепенных Мутаций */
+function drawRatSprite(v: View, r: RatPose, color: number, t: number, look: Look): boolean {
+  const sf = sheetFamily(look); const sh = sheet('rat_' + sf.fam); if (!sh) return false;
+  const b = v.g; b.clear(); v.extra.visible = false; v.sp.visible = true;
+  let fi = 0;
+  if (r.dead || r.down) fi = 5; else if (!r.grounded) fi = 3; else if (r.biting) fi = 4; else if (Math.abs(r.vx) > 10) fi = 1 + (Math.floor(t / 5) % 2);
+  v.sp.texture = sh.frames[fi]; v.sp.anchor.set(0.5, 1); v.sp.scale.set(r.facing * RAT_CELL.scale, RAT_CELL.scale);
+  v.sp.position.set(v.g.position.x + 7, v.g.position.y + 10.5);
+  v.sp.tint = r.dead ? 0x555555 : mix(0xffffff, color, 0.35);
+  const f = r.facing;
+  // Ступень 2–3 семейства: пульсирующее кольцо цвета Свойства
+  if (sf.prop && sf.tier >= 2 && !r.dead) { const pc = parseInt(PROP_META[sf.prop].color.slice(1), 16); b.circle(7, 5, 9 + sf.tier + Math.sin(t / 6) * 1.2).stroke({ width: 1, color: pc, alpha: 0.28 + 0.1 * sf.tier }); }
+  // второстепенные Мутации — штрихами поверх листа (лист показывает только главное семейство)
+  if (look.infect && sf.key !== 'infect') for (let i = 0; i < look.infect + 1; i++) b.circle(3 + ((i * 5) % 9), 3 + ((i * 3) % 5), 0.9).fill(0xa060ff);
+  if (look.rot && sf.key !== 'rot') for (let i = 0; i < look.rot; i++) b.circle(7 + Math.sin(t / 7 + i * 2) * 7, -2 + Math.cos(t / 5 + i) * 2, 0.6).fill(0x222222);
+  if (look.sweet && sf.key !== 'sweet' && Math.floor(t / 10) % 3 === 0) b.rect(2 + (t % 10), -1, 1, 1).fill(0xffffff);
+  if (look.acid && sf.key !== 'acid') b.rect(f > 0 ? 14 : -1, 6, 1, 1 + look.acid).fill(0x9cff5a);
+  if (look.loud && sf.key !== 'loud' && Math.floor(t / 4) % 2) for (let i = 0; i < 2; i++) b.rect(f > 0 ? 16 + i * 2 : -3 - i * 2, 2 + i * 2, 1, 1).fill(0xffa040);
+  drawBiteFx(v, r);
+  return true;
+}
+function drawRat(v: View, r: RatPose, color: number, t: number, look: Look = NO_LOOK) {
+  if (drawRatSprite(v, r, color, t, look)) return;
   const b = v.g; b.clear(); v.sp.visible = false; v.extra.visible = false;
   // внешность от Мутаций: Гнилое темнит и зеленит шерсть, Сладкое розовит
   if (look.rot) color = mix(color, 0x5a6a3a, 0.25 * look.rot); if (look.sweet) color = mix(color, 0xf0b0c0, 0.2 * look.sweet);
@@ -487,8 +520,12 @@ function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolea
   const ly = 9 + (look.sticky ? 0 : 0);
   if (r.grounded && Math.abs(r.vx) > 10) { const ph = Math.floor(t / 5) % 2; b.rect(2 + ph * 2, ly, 2, 1 + legLen).fill(dark); b.rect(9 - ph * 2, ly, 2, 1 + legLen).fill(dark); }
   else if (legLen) { b.rect(2, ly, 2, 1 + legLen).fill(dark); b.rect(10, ly, 2, 1 + legLen).fill(dark); }
+  drawBiteFx(v, r);
+}
+/** Анимация укуса поверх крысы: вариант выбирается на старте укуса (v.anim), прогресс p 0→1 за время укуса */
+function drawBiteFx(v: View, r: RatPose) {
+  const b = v.g;
   if (r.biting) {
-    // анимация укуса: вариант выбирается на старте укуса (v.anim), прогресс p 0→1 за время укуса
     if (!v.biteOn) { v.biteOn = true; v.anim = Math.floor(Math.random() * 3); }
     const p = Math.min(1, Math.max(0, 1 - (r.biteT ?? 0))), f = r.facing, cx = f > 0 ? 17 : -3, cy = 4;
     const cols = [0xfff1b0, 0xffd27a, 0xffffff];
@@ -605,15 +642,20 @@ app.ticker.add(() => {
       const x = h0[2] + (h1[2] - h0[2]) * t, y = h0[3] + (h1[3] - h0[3]) * t;
       const info = HUMAN_INFO[h1[1]];
       const v = view('h' + h1[0]); seen.add('h' + h1[0]);
-      const moving = h1[5] === 'walk' || h1[5] === 'panic' || h1[5] === 'chase';
-      const speed = h1[5] === 'panic' || h1[5] === 'chase' ? 4 : 8;
-      const frameKey = moving && Math.floor(frame / speed) % 2 ? 'b' : 'a';
-      v.sp.texture = tex('h' + h1[1] + frameKey, HUMANS[h1[1]][frameKey]);
+      const inf = h1[7];
+      const hs = sheet('human_' + h1[1]);
+      if (hs) v.sp.texture = hs.frames[humanFrame(h1[1], h1[5], inf, frame)];
+      else {
+        const moving = h1[5] === 'walk' || h1[5] === 'panic' || h1[5] === 'chase';
+        const speed = h1[5] === 'panic' || h1[5] === 'chase' ? 4 : 8;
+        const frameKey = moving && Math.floor(frame / speed) % 2 ? 'b' : 'a';
+        v.sp.texture = tex('h' + h1[1] + frameKey, HUMANS[h1[1]][frameKey]);
+      }
       v.sp.anchor.set(0.5, 1); v.sp.position.set(info.w / 2, info.h); v.sp.scale.x = h1[4];
-      v.extra.visible = h1[1] === 'D';
+      v.extra.visible = h1[1] === 'D' && !hs; // в листе Дворника метла уже нарисована
       if (v.extra.visible) { v.extra.texture = tex('broom', BROOM); v.extra.anchor.set(0.5, 1); v.extra.position.set(info.w / 2 + h1[4] * 7, info.h); v.extra.scale.x = h1[4]; v.extra.rotation = h1[5] === 'windup' ? -h1[4] * 0.9 : h1[5] === 'chase' ? -h1[4] * 0.3 : 0; }
       v.c.position.set(Math.round(x), Math.round(y));
-      const inf = h1[7]; v.sp.tint = inf === 0 ? 0xffffff : inf === 1 ? 0xd8f0c0 : inf === 2 ? 0xa8e088 : 0x70b060;
+      v.sp.tint = inf === 0 ? 0xffffff : inf === 1 ? 0xd8f0c0 : inf === 2 ? 0xa8e088 : 0x70b060;
       const ls = LABEL_STYLE[h1[5]] ?? (inf === 3 ? { text: 'ослаб', fill: 0x70e060, size: 7 } : inf === 2 ? { text: 'болеет', fill: 0xa0e080, size: 7 } : h1[5] === 'eat' ? { text: 'ням', fill: 0xffffff, size: 7 } : undefined);
       v.label.text = ls?.text ?? ''; if (ls) { v.label.style.fill = ls.fill; v.label.style.fontSize = ls.size; } v.label.position.set(info.w / 2, -2);
       v.bar.clear(); if (h1[6] < info.hp) { v.bar.rect(0, -1, info.w, 1.5).fill(0x301010); v.bar.rect(0, -1, info.w * (h1[6] / info.hp), 1.5).fill(0xd04040); }

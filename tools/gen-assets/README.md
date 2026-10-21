@@ -152,3 +152,16 @@ node post.mjs --preview 4                # даунскейл + квантова
 - Тайлсет: ожидаемо «источник предметов», не лист.
 
 Вердикт записать в тикет 016, туда же — суммарный `usage` из `raw/*.json`.
+
+## Ленты спрайтов (крысы и Люди, 2026-10-21)
+
+Codex рисует 6 кадров в ряд на magenta одной картинкой 1536×1024; мутантные варианты — тем же промптом с референсом `-i assets/generated/raw/rat_base_strip.png`
+(позы и раскладка сохраняются). Codex в `exec` не может писать в проект («read-only workspace») — файл остаётся в `~/.codex/generated_images/<thread>/`,
+путь есть в его ответе; копируем руками. Резка в лист:
+
+```bash
+node tools/gen-assets/split-strip.mjs --in assets/generated/raw/rat_base_strip.png --out apps/client/public/sprites/rat_base.png --cell 48x24 --frames 6 --preview 4
+node tools/gen-assets/split-strip.mjs --in assets/generated/raw/human_P_strip.png --out apps/client/public/sprites/human_P.png --cell 24x32 --frames 6 --fit height
+```
+
+Хвосты крыс почти касаются соседнего кадра, поэтому при `--frames N` разрезы ищутся по самым пустым колонкам около границ ячеек, а не по чистым промежуткам.
