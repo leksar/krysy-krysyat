@@ -89,14 +89,19 @@ net.on('events', (evs) => { for (const e of evs) onEvent(e); });
 
 function esc(s: string) { return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!)); }
 function makeRat(s: RatSnap): Rat {
-  const r: Rat = { id: s.id, name: s.n, x: s.x, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: 100, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, exitProg: 0, banked: [], hits: 0 };
+  const r: Rat = { id: s.id, name: s.n, x: s.x, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: 100, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, exitProg: 0, banked: [], hits: 0 };
   applyRatSnap(r, s); return r;
+}
+function solidOthers() {
+  const s = snaps[snaps.length - 1]; if (!s) return [];
+  return s.rats.filter((r) => r.id !== myId && !r.dd && !r.ex).map((r) => ({ x: r.x, y: r.y, w: RAT_W, h: RAT_H, vx: r.vx, vy: r.vy, grounded: r.g === 1 }));
 }
 function reconcile(rs: RatSnap) {
   if (!me || !level) return;
   applyRatSnap(me, rs);
   pendingInputs = pendingInputs.filter((i) => i.seq > rs.s);
-  for (const i of pendingInputs) stepRat(level, me, i);
+  const others = solidOthers();
+  for (const i of pendingInputs) stepRat(level, me, i, others);
 }
 
 // ---------- итоги ----------
@@ -178,8 +183,19 @@ function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolea
   if (r.biting) { const cx = r.facing > 0 ? 19 : -5; const a0 = r.facing > 0 ? -1 : Math.PI - 1; b.arc(cx, 4, 6, a0, a0 + 2).stroke({ width: 2, color: 0xfff1b0 }); }
 }
 function fx(e: Event) {
-  const t = new Text({ text: ({ hit: '💥', hurt: `-${e.a}`, stomp: '👟', swing: '🧹', scream: '😱', panic: '❗', pick: e.a ?? '', steal: '🐦', cat: '🐈', kill: '☠️', pigeondead: '🪶', down: '💫', exit: '🏁' } as Record<string, string>)[e.k] ?? '', style: { fontSize: 10, fill: 0xffffff } });
+  if (e.k === 'hit') { // цифра урона + вспышка по цели
+    const weak = e.b === 'weak';
+    const n = new Text({ text: weak ? `-${e.a} 👥` : `-${e.a}`, style: { fontSize: weak ? 9 : 12, fontWeight: '700', fill: weak ? 0xbbbbbb : 0xffe066, stroke: { color: 0x000000, width: 2 } } });
+    n.anchor.set(0.5, 1); n.position.set(e.x + 6, e.y - 4); fxLayer.addChild(n);
+    const born = performance.now();
+    const tk = () => { const a = (performance.now() - born) / 800; if (a >= 1) { app.ticker.remove(tk); n.destroy(); return; } n.y -= 0.5; n.alpha = 1 - a * a; };
+    app.ticker.add(tk);
+    for (const [k, v] of views) if ((k[0] === 'h' || k[0] === 'p') && Math.abs(v.c.x - e.x) < 20 && Math.abs(v.c.y - e.y) < 30) { v.t.tint = 0xff4040; setTimeout(() => { if (!v.t.destroyed) v.t.tint = 0xffffff; }, 150); }
+    return;
+  }
+  const t = new Text({ text: ({ hurt: `-${e.a}`, stomp: '👟', swing: '🧹', scream: '😱', panic: '❗', pick: e.a ?? '', steal: '🐦', cat: '🐈', kill: '☠️', pigeondead: '🪶', down: '💫', exit: '🏁' } as Record<string, string>)[e.k] ?? '', style: { fontSize: 10, fill: 0xffffff } });
   if (!t.text) { t.destroy(); return; }
+  if (e.k === 'hurt') { t.style.fill = 0xff5050; t.style.fontSize = 12; t.style.fontWeight = '700'; t.style.stroke = { color: 0x000000, width: 2 }; }
   t.anchor.set(0.5, 1); t.position.set(e.x + 7, e.y - 2); fxLayer.addChild(t);
   const born = performance.now();
   const tick = () => { const a = (performance.now() - born) / 700; if (a >= 1) { app.ticker.remove(tick); t.destroy(); return; } t.y -= 0.4; t.alpha = 1 - a; };
@@ -198,7 +214,7 @@ app.ticker.add(() => {
     if (me) {
       const input: Input = { seq: ++seq, ...s };
       prevX = me.x; prevY = me.y;
-      stepRat(level, me, input); pendingInputs.push(input);
+      stepRat(level, me, input, solidOthers()); pendingInputs.push(input);
       net.sendInput(input, lastServerMe?.s ?? 0);
     }
   }
@@ -242,7 +258,8 @@ app.ticker.add(() => {
       const v = view('h' + h1[0], info.icon); v.t.style.fontSize = h1[1] === 'K' ? 11 : 16; v.t.position.set(info.w / 2, info.h);
       v.t.scale.x = h1[4] > 0 ? 1 : -1;
       v.c.position.set(Math.round(x), Math.round(y)); seen.add('h' + h1[0]);
-      v.label.text = h1[5] === 'panic' ? '❗' : h1[5] === 'chase' ? '💢' : h1[5] === 'sleep' ? '💤' : ''; v.label.position.set(info.w / 2, -2);
+      v.label.text = h1[5] === 'windup' ? '‼️' : h1[5] === 'panic' ? '❗' : h1[5] === 'chase' ? '💢' : h1[5] === 'sleep' ? '💤' : ''; v.label.position.set(info.w / 2, -2);
+      v.label.style.fontSize = h1[5] === 'windup' ? 11 : 7;
       v.bar.clear(); if (h1[6] < info.hp) v.bar.rect(0, -1, info.w * (h1[6] / info.hp), 1.5).fill(0xd04040);
     }
     for (const p1 of s1.pg) {
@@ -260,7 +277,7 @@ app.ticker.add(() => {
       const key = 'e' + e[0] + e[1]; const v = view(key, e[3] ? EXIT_INFO[e[0]].icon : '🔒'); v.t.style.fontSize = 13; v.t.position.set(8, 16); v.t.text = e[3] ? EXIT_INFO[e[0]].icon : '🔒';
       v.c.position.set(e[1], e[2]); v.label.text = EXIT_INFO[e[0]].name; v.label.position.set(8, 0); seen.add(key);
     }
-    if (s1.cat) { const v = view('cat', '🐈'); v.t.style.fontSize = 16; v.t.position.set(11, 14); v.t.scale.x = s1.cat[2] > 0 ? 1 : -1; v.c.position.set(s1.cat[0], s1.cat[1]); seen.add('cat'); }
+    if (s1.cat) { const c0 = s0?.cat ?? s1.cat; const v = view('cat', '🐈'); v.t.style.fontSize = 16; v.t.position.set(11, 14); v.t.scale.x = s1.cat[2] > 0 ? 1 : -1; v.c.position.set(Math.round(c0[0] + (s1.cat[0] - c0[0]) * t), Math.round(c0[1] + (s1.cat[1] - c0[1]) * t)); seen.add('cat'); }
     for (const [k, v] of views) if (!seen.has(k)) { v.c.destroy(); views.delete(k); }
 
     // HUD

@@ -113,13 +113,14 @@ setInterval(() => {
       if (room.phase !== 'raid' || !room.world) continue;
       const w = room.world;
       const inputs = new Map<string, Input>();
+      const solidRats = [...w.rats.values()].filter((r) => !r.dead && !r.exited);
       for (const p of room.peers.values()) {
         const steps = p.queue.length > 8 ? 3 : p.queue.length > 3 ? 2 : 1;
         let input = p.last;
         for (let k = 0; k < steps; k++) {
           input = p.queue.length ? p.queue.shift()! : { ...p.last, jump: false, bite: false, act: false, seq: p.last.seq };
           p.last = input;
-          const r = w.rats.get(p.id); if (r) stepRat(w.level, r, input);
+          const r = w.rats.get(p.id); if (r) stepRat(w.level, r, input, solidRats);
         }
         inputs.set(p.id, input);
       }

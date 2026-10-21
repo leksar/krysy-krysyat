@@ -19,7 +19,8 @@ export const PHYS = {
   speed: 95, accel: 1400, airAccel: 900,
   jumpVel: 320, gravity: 850, fallGravity: 1250, cutGravity: 1800, maxFall: 320,
   coyote: 0.08, buffer: 0.1,
-  biteRange: 14, biteKnockX: 160, biteKnockY: 140, biteCd: 0.3, biteDur: 0.12, biteDmg: 15,
+  biteRange: 18, biteKnockX: 160, biteKnockY: 140, biteCd: 0.3, biteDur: 0.12, biteDmg: 15,
+  soloBite: 0.4, humanStun: 0.35, windup: 0.35, invTime: 0.6, stompDmg: 20, swingDmg: 20, peckDmg: 6, pigeonHp: 15,
 };
 export const RULES = {
   ratHp: 100, pockets: 6, downTime: 30, reviveTime: 3, reviveHp: 40,
@@ -67,6 +68,7 @@ export type Rat = Body & {
   hp: number; down: boolean; downLeft: number; dead: boolean; exited: boolean;
   pockets: string[];        // kinds
   revive: number;           // прогресс подъёма ЭТОЙ крысы (её поднимают)
+  inv: number;              // неуязвимость после удара, с
   exitProg: number;         // прогресс выхода
   banked: string[];         // вынесенное (после выхода)
   hits: number;
@@ -74,15 +76,16 @@ export type Rat = Body & {
 export const RAT_W = 14, RAT_H = 10;
 
 export type HumanType = 'P' | 'D' | 'K' | 'Z';
-export type HumanState = 'walk' | 'panic' | 'chase' | 'sleep' | 'stomp' | 'swing';
+export type HumanState = 'walk' | 'panic' | 'chase' | 'sleep' | 'stomp' | 'swing' | 'windup';
 export type Human = Body & {
   id: number; type: HumanType; facing: 1 | -1; state: HumanState; hp: number;
   timer: number; cd: number; target: string | null; dropped: boolean;
   biters: { id: string; at: number }[];
+  stun: number; wind: 'stomp' | 'swing' | null; after: HumanState;
 };
 const HUMAN: Record<HumanType, { hp: number; w: number; h: number; speed: number; icon: string; name: string }> = {
-  P: { hp: 100, w: 12, h: 28, speed: 40, icon: '🧍', name: 'Прохожий' },
-  D: { hp: 150, w: 12, h: 28, speed: 55, icon: '🧹', name: 'Дворник' },
+  P: { hp: 80, w: 12, h: 28, speed: 40, icon: '🧍', name: 'Прохожий' },
+  D: { hp: 120, w: 12, h: 28, speed: 55, icon: '🧹', name: 'Дворник' },
   K: { hp: 30,  w: 10, h: 18, speed: 60, icon: '🧒', name: 'Ребёнок' },
   Z: { hp: 60,  w: 14, h: 20, speed: 0,  icon: '🍺', name: 'Пьяный' },
 };
@@ -158,18 +161,19 @@ export function createWorld(map: string, seed: number): World {
 
 function makeHuman(w: World, type: HumanType, x: number, y: number): Human {
   const d = HUMAN[type];
-  return { id: w.nextId++, type, x: x + (16 - d.w) / 2, y: y + 16 - d.h, w: d.w, h: d.h, vx: 0, vy: 0, grounded: false, facing: 1, state: type === 'Z' ? 'sleep' : 'walk', hp: d.hp, timer: 0, cd: 0, target: null, dropped: false, biters: [] };
+  return { id: w.nextId++, type, x: x + (16 - d.w) / 2, y: y + 16 - d.h, w: d.w, h: d.h, vx: 0, vy: 0, grounded: false, facing: 1, state: type === 'Z' ? 'sleep' : 'walk', hp: d.hp, timer: 0, cd: 0, target: null, dropped: false, biters: [], stun: 0, wind: null, after: 'walk' };
 }
 function spawnItem(w: World, kind: string, x: number, y: number): Item { const it = { id: w.nextId++, kind, x, y, vy: 0, grounded: false }; w.items.push(it); return it; }
 function spawnPigeon(w: World, type: PigeonType): Pigeon {
   const p = w.level.perches[ri(w, w.level.perches.length)] ?? { x: 100, y: 40 };
-  const pg: Pigeon = { id: w.nextId++, type, x: p.x, y: p.y, vx: 0, vy: 0, state: 'perch', hp: 20, timer: 3 + rand(w) * 8, target: null, carry: null, tx: p.x, ty: p.y };
+  const pg: Pigeon = { id: w.nextId++, type, x: p.x, y: p.y, vx: 0, vy: 0, state: 'perch', hp: PHYS.pigeonHp, timer: 6 + rand(w) * 8, target: null, carry: null, tx: p.x, ty: p.y };
   w.pigeons.push(pg); return pg;
 }
 
 export function addRat(w: World, id: string, name: string): Rat {
-  const s = w.level.spawns[w.rats.size % w.level.spawns.length];
-  const r: Rat = { id, name, x: s.x + (w.rats.size % 3) * 6, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: RULES.ratHp, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, exitProg: 0, banked: [], hits: 0 };
+  const n = w.rats.size, sp = w.level.spawns;
+  const s = sp[n % sp.length];
+  const r: Rat = { id, name, x: s.x + 1 + Math.floor(n / sp.length) * 18, y: s.y - Math.floor(n / sp.length) * 12, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: RULES.ratHp, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, exitProg: 0, banked: [], hits: 0 };
   w.rats.set(id, r); return r;
 }
 
@@ -214,13 +218,27 @@ const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.
 const edgeAhead = (l: Level, b: Body, dir: number) => !isSolid(l, Math.floor((dir > 0 ? b.x + b.w + 2 : b.x - 2) / TILE), Math.floor((b.y + b.h + 2) / TILE));
 
 // ---------- шаг Крысы (клиент предсказывает, сервер авторитетен) ----------
-export function stepRat(l: Level, r: Rat, input: Input): void {
+/** Крысы — твёрдые друг для друга: можно встать напарнику на спину и подсадить. others — остальные живые крысы. */
+function collideRats(l: Level, r: Body, prevY: number, others: Body[]): void {
+  for (const o of others) {
+    if (o === r || !overlap(r, o)) continue;
+    if (r.vy >= 0 && prevY + r.h <= o.y + 3) { r.y = o.y - r.h; r.vy = 0; r.grounded = true; }       // приземлилась сверху
+    else if (r.vy < 0 && prevY >= o.y + o.h - 3) { r.y = o.y + o.h; r.vy = 0; }                        // стукнулась снизу
+    else {                                                                                               // бок — вытолкнуть
+      const px = r.x + r.w / 2 < o.x + o.w / 2 ? o.x - r.w : o.x + o.w;
+      if (!collides(l, px, r.y, r.w, r.h)) { r.x = px; r.vx = 0; }
+    }
+  }
+}
+
+export function stepRat(l: Level, r: Rat, input: Input, others: Body[] = []): void {
   const p = PHYS, dt = TICK;
   r.lastSeq = input.seq;
+  const prevY = r.y;
   if (r.down || r.dead || r.exited) { // лежит: не двигается, только падает
     r.vx = approach(r.vx, 0, p.accel * dt);
     r.vy = Math.min(r.vy + p.fallGravity * dt, p.maxFall);
-    moveBody(l, r, dt); r.biteLeft = 0; return;
+    moveBody(l, r, dt); collideRats(l, r, prevY, others); r.biteLeft = 0; return;
   }
   const target = input.moveX * p.speed;
   r.vx = approach(r.vx, target, (r.grounded ? p.accel : p.airAccel) * dt);
@@ -235,6 +253,7 @@ export function stepRat(l: Level, r: Rat, input: Input): void {
   r.vy = Math.min(r.vy + g * dt, p.maxFall);
   if (input.bite && r.biteCd === 0) { r.biteLeft = p.biteDur; r.biteCd = p.biteCd; }
   moveBody(l, r, dt);
+  collideRats(l, r, prevY, others);
 }
 
 export function pocketsUsed(r: Rat): number { return r.pockets.reduce((s, k) => s + KINDS[k].size, 0); }
@@ -258,25 +277,30 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
   // --- Люди ---
   for (const h of w.humans) {
     const d = HUMAN[h.type];
-    h.cd = Math.max(0, h.cd - dt); h.timer = Math.max(0, h.timer - dt);
+    h.cd = Math.max(0, h.cd - dt); h.timer = Math.max(0, h.timer - dt); h.stun = Math.max(0, h.stun - dt);
     h.biters = h.biters.filter((b) => w.tick - Number(b.at) < 3 * TICK_HZ);
     const near = nearestRat(alive, h, 12 * TILE);
-    if (h.state === 'sleep') { /* спит */ }
+    if (h.stun > 0) { h.vx = 0; }
+    else if (h.state === 'windup') {
+      h.vx = 0;
+      if (h.timer === 0) { if (h.wind === 'stomp') stomp(w, h, alive); else swing(w, h, alive); h.state = h.after; h.timer = h.after === 'chase' ? 4 : 2; h.wind = null; }
+    }
+    else if (h.state === 'sleep') { /* спит */ }
     else if (h.state === 'panic') {
       if (h.timer === 0) h.state = 'walk';
       else {
         const from = near ?? { x: h.x };
         h.facing = h.x < from.x ? -1 : 1;
         h.vx = h.facing * d.speed * 1.8;
-        // зажат — топчет
-        if (near && Math.abs(near.x - h.x) < 18 && h.cd === 0) { stomp(w, h, alive); }
+        // зажат — замахивается ногой
+        if (near && Math.abs(near.x - h.x) < 18 && h.cd === 0) windup(h, 'stomp', 'panic');
       }
     } else if (h.state === 'chase') {
       if (!near || h.timer === 0) { h.state = 'walk'; h.target = null; }
       else {
         h.facing = near.x > h.x ? 1 : -1;
         h.vx = h.facing * d.speed * 1.5;
-        if (Math.abs(near.x + near.w / 2 - (h.x + h.w / 2)) < 22 && Math.abs(near.y - h.y) < 30 && h.cd === 0) swing(w, h, alive);
+        if (Math.abs(near.x + near.w / 2 - (h.x + h.w / 2)) < 24 && Math.abs(near.y - h.y) < 30 && h.cd === 0) windup(h, 'swing', 'chase');
       }
     } else { // walk
       if (h.vx === 0) h.vx = h.facing * d.speed;
@@ -296,7 +320,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     h.vy = Math.min(h.vy + PHYS.fallGravity * dt, PHYS.maxFall);
     const blocked = moveBody(l, h, dt);
     if (blocked && h.state === 'walk') { h.facing = -h.facing as 1 | -1; h.vx = h.facing * d.speed; }
-    if (blocked && h.state === 'panic' && near && Math.abs(near.x - h.x) < 24 && h.cd === 0) stomp(w, h, alive);
+    if (blocked && h.state === 'panic' && near && Math.abs(near.x - h.x) < 24 && h.cd === 0) windup(h, 'stomp', 'panic');
   }
   w.humans = w.humans.filter((h) => h.hp > 0);
 
@@ -306,9 +330,9 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     const speed = pg.type === 'V' ? 150 : 120;
     if (pg.state === 'perch') {
       if (pg.timer === 0) {
-        const victim = pg.type === 'V' ? pickRat(w, alive.filter((r) => !r.down && r.pockets.length > 0), pg, 14 * TILE) : pickRat(w, alive.filter((r) => !r.down), pg, 8 * TILE);
+        const victim = pg.type === 'V' ? pickRat(w, alive.filter((r) => !r.down && r.pockets.length >= 2), pg, 14 * TILE) : pickRat(w, alive.filter((r) => !r.down), pg, 8 * TILE);
         if (victim) { pg.state = pg.type === 'V' ? 'dive' : 'attack'; pg.target = victim.id; pg.timer = 4; }
-        else pg.timer = 2 + rand(w) * 4;
+        else pg.timer = 4 + rand(w) * 6;
       }
     } else if (pg.state === 'dive' || pg.state === 'attack') {
       const t = pg.target ? w.rats.get(pg.target) : null;
@@ -317,7 +341,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
         flyTo(pg, t.x + t.w / 2, t.y + t.h / 2, speed, dt);
         if (Math.abs(pg.x - (t.x + t.w / 2)) < 10 && Math.abs(pg.y - (t.y + t.h / 2)) < 10) {
           if (pg.type === 'V' && t.pockets.length) { pg.carry = t.pockets.pop()!; ev(w, 'steal', pg.x, pg.y, KINDS[pg.carry].icon); pg.state = 'hold'; pg.tx = clampX(w, pg.x + (rand(w) < 0.5 ? -1 : 1) * 6 * TILE); pg.ty = Math.max(24, pg.y - 3 * TILE); pg.timer = 8; }
-          else if (pg.type === 'F') { damageRat(w, t, 10, alive); pg.vx = -pg.vx; toPerch(w, pg); pg.timer = 2; }
+          else if (pg.type === 'F') { damageRat(w, t, PHYS.peckDmg, alive); pg.vx = -pg.vx; toPerch(w, pg); pg.timer = 5; }
           else toPerch(w, pg);
         }
       }
@@ -360,6 +384,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
   // --- Крысы: лежание, подъём, Выход, выброс ---
   for (const r of alive) {
     const inp = inputs.get(r.id) ?? EMPTY_INPUT;
+    r.inv = Math.max(0, r.inv - dt);
     if (r.down) {
       r.downLeft -= dt;
       if (r.downLeft <= 0) { r.dead = true; r.down = false; spill(w, r); ev(w, 'dead', r.x, r.y, r.name); }
@@ -390,7 +415,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
   for (const e of l.exits) if (e.type === '2' && !e.open && w.panic >= RULES.lukOpenPanic) { e.open = true; ev(w, 'luk', e.x, e.y); }
   if (w.stage < 1 && w.panic >= RULES.thresholds.pigeons) { w.stage = 1; spawnPigeon(w, 'V'); spawnPigeon(w, 'F'); ev(w, 'stage', 0, 0, 'Голуби слетаются'); }
   if (w.stage < 2 && w.panic >= RULES.thresholds.cat) { w.stage = 2; const cp = l.cat ?? l.spawns[0]; w.cat = { id: w.nextId++, x: cp.x, y: cp.y - 8, w: 22, h: 14, vx: 0, vy: 0, grounded: false, hp: 200, cd: 2, alive: true }; ev(w, 'stage', 0, 0, 'Пришёл кот'); }
-  if (w.stage < 3 && w.panic >= RULES.thresholds.flock) { w.stage = 3; for (let i = 0; i < 5; i++) spawnPigeon(w, 'F'); ev(w, 'stage', 0, 0, 'Стая голубей'); }
+  if (w.stage < 3 && w.panic >= RULES.thresholds.flock) { w.stage = 3; for (let i = 0; i < 4; i++) spawnPigeon(w, 'F'); ev(w, 'stage', 0, 0, 'Стая голубей'); }
 
   // --- конец Вылазки ---
   const living = [...w.rats.values()].filter((r) => !r.dead && !r.exited);
@@ -417,18 +442,20 @@ function flyTo(pg: Pigeon, tx: number, ty: number, speed: number, dt: number) {
 function toPerch(w: World, pg: Pigeon) { const p = w.level.perches[ri(w, w.level.perches.length)] ?? { x: pg.x, y: 40 }; pg.state = 'fly'; pg.tx = p.x; pg.ty = p.y; pg.target = null; pg.timer = 3; }
 function dropFrom(w: World, h: Human, kinds: string[]) { for (const k of kinds) { const it = spawnItem(w, k, h.x + h.w / 2 - 4 + (rand(w) - 0.5) * 16, h.y + h.h - 10); it.vy = -60; } }
 function damageRat(w: World, r: Rat, dmg: number, alive: Rat[]) {
-  if (r.down || r.dead) return;
+  if (r.down || r.dead || r.inv > 0) return;
+  r.inv = PHYS.invTime;
   r.hp -= dmg; ev(w, 'hurt', r.x, r.y, String(dmg));
   if (r.hp <= 0) { r.hp = 0; r.down = true; r.downLeft = RULES.downTime; r.revive = 0; ev(w, 'down', r.x, r.y, r.name); }
 }
-function stomp(w: World, h: Human, alive: Rat[]) { h.cd = 1; h.state = 'stomp'; h.timer = 0.4; setTimeoutState(h, 'panic', 2); for (const r of alive) if (Math.abs(r.x - h.x) < 18 && Math.abs(r.y + r.h - (h.y + h.h)) < 12) damageRat(w, r, 30, alive); ev(w, 'stomp', h.x, h.y); }
-function swing(w: World, h: Human, alive: Rat[]) { h.cd = 1.2; for (const r of alive) if (Math.abs(r.x + r.w / 2 - (h.x + h.w / 2)) < 26 && Math.abs(r.y - h.y) < 32) { damageRat(w, r, 25, alive); r.vx = h.facing * 180; r.vy = -120; } ev(w, 'swing', h.x, h.y); }
-function setTimeoutState(h: Human, s: HumanState, t: number) { h.state = s; h.timer = t; }
+function windup(h: Human, kind: 'stomp' | 'swing', after: HumanState) { h.state = 'windup'; h.wind = kind; h.after = after; h.timer = PHYS.windup; h.cd = kind === 'stomp' ? 1.2 : 1.5; }
+function stomp(w: World, h: Human, alive: Rat[]) { for (const r of alive) if (Math.abs(r.x - h.x) < 18 && Math.abs(r.y + r.h - (h.y + h.h)) < 12) { damageRat(w, r, PHYS.stompDmg, alive); r.vx = (r.x < h.x ? -1 : 1) * 140; r.vy = -100; } ev(w, 'stomp', h.x, h.y); }
+function swing(w: World, h: Human, alive: Rat[]) { for (const r of alive) if (Math.abs(r.x + r.w / 2 - (h.x + h.w / 2)) < 28 && Math.abs(r.y - h.y) < 32) { damageRat(w, r, PHYS.swingDmg, alive); r.vx = h.facing * 180; r.vy = -120; } ev(w, 'swing', h.x, h.y); }
 function biteHuman(w: World, h: Human, a: Rat) {
   if (!h.biters.some((b) => b.id === a.id)) h.biters.push({ id: a.id, at: w.tick });
-  const pack = h.biters.length >= 2 || h.type === 'K' || h.type === 'Z' || h.hp < HUMAN[h.type].hp * 0.5 && false;
-  const dmg = pack ? PHYS.biteDmg : PHYS.biteDmg * 0.25;
-  h.hp -= dmg; ev(w, 'hit', h.x, h.y);
+  const pack = h.biters.length >= 2 || h.type === 'K' || h.type === 'Z';
+  const dmg = pack ? PHYS.biteDmg : PHYS.biteDmg * PHYS.soloBite;
+  h.hp -= dmg; h.stun = PHYS.humanStun; h.vx = a.facing * 40; if (h.state === 'windup') { h.state = h.after; h.wind = null; }
+  ev(w, 'hit', h.x, h.y, String(Math.round(dmg)), pack ? '' : 'weak');
   if (h.type === 'Z') { if (rand(w) < 0.3) dropFrom(w, h, ['drool']); }
   else if (h.state === 'walk' || h.state === 'sleep') { h.state = h.type === 'D' ? 'chase' : 'panic'; h.timer = 3; }
   if (h.hp <= 0) {
@@ -439,7 +466,7 @@ function biteHuman(w: World, h: Human, a: Rat) {
   }
 }
 function bitePigeon(w: World, pg: Pigeon, a: Rat) {
-  pg.hp -= PHYS.biteDmg; ev(w, 'hit', pg.x, pg.y);
+  pg.hp -= PHYS.biteDmg; ev(w, 'hit', pg.x, pg.y, String(PHYS.biteDmg));
   if (pg.carry) { const it = spawnItem(w, pg.carry, pg.x, pg.y); it.vy = -40; pg.carry = null; }
   if (pg.hp <= 0) { spawnItem(w, 'feather', pg.x, pg.y); if (rand(w) < 0.25) spawnItem(w, 'carcass', pg.x + 6, pg.y); ev(w, 'pigeondead', pg.x, pg.y); }
   else { pg.state = 'flee'; pg.tx = clampX(w, pg.x + (a.facing) * 8 * TILE); pg.ty = Math.max(24, pg.y - 4 * TILE); pg.timer = 3; }
