@@ -45,7 +45,8 @@ export function stashTotals(stash: Record<string, number>): Record<string, numbe
   return t;
 }
 export function stashTotalsText(stash: Record<string, number>, short = false): string {
-  const t = stashTotals(stash); const parts = TYPE_ORDER.filter((ty) => t[ty]).map((ty) => `${short ? TYPE_ICON[ty] : TYPE_RU[ty]} ${t[ty]}`);
+  const SHORT: Record<string, string> = { food: 'Еда', trash: 'Мусор', secr: 'Выдел.', organ: 'Органы' };
+  const t = stashTotals(stash); const parts = TYPE_ORDER.filter((ty) => t[ty]).map((ty) => `${short ? SHORT[ty] : TYPE_RU[ty]} ${t[ty]}`); // в мире Pixi-текст без эмодзи: только слова
   return parts.join(' · ');
 }
 function grouped(stash: Record<string, number>, minus: string[] = []) {
