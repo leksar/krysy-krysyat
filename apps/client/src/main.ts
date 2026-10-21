@@ -313,7 +313,11 @@ const bgStage = new Container(); app.stage.addChild(bgStage); // паралла�
 const stage = new Container(); app.stage.addChild(stage);
 let levelSprite: Sprite | null = null;
 // слои параллакса по темам: имя файла и скорость относительно камеры
-const PARALLAX: Record<string, [string, number][]> = { yard: [['yard_far', 0.12], ['yard_mid', 0.4], ['yard_near', 0.75]] };
+const PARALLAX: Record<string, [string, number][]> = {
+  yard: [['yard_far', 0.12], ['yard_mid', 0.4], ['yard_near', 0.75]],
+  kitchen: [['kitchen_far', 0.1], ['kitchen_mid', 0.35], ['kitchen_near', 0.7]],
+  roof: [['roof_far', 0.08], ['roof_mid', 0.35], ['roof_near', 0.75]],
+};
 let bgLayers: { sp: TilingSprite; speed: number }[] = [];
 let bgGen = 0;
 async function buildBackdrop(themeId: string) {

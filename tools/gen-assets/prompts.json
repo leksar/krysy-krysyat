@@ -16,7 +16,10 @@
       "group": "tiles",
       "prompt": "A tileset sheet for a KITCHEN level, laid out on a regular grid of 16 columns by 16 rows of equal square tiles, each tile isolated with transparent gaps between them. Contents, left-to-right, top-to-bottom: checkered beige-and-brown floor tiles with left/middle/right edge variants; pale tiled wall tiles with a grout line; a wooden kitchen counter top (platform) with left/middle/right pieces; lower cabinets with doors and handles; upper cabinets; a white gas stove with four burners and an oven door; a tall white refrigerator split into 2x3 tiles; a steel sink with a tap; a shelf with jars; a wooden table edge; a baseboard tile; a vent grille; a door frame; a window with night sky. Palette: cream, beige, light brown, dark brown, steel grey, white, teal accents, black outline.",
       "size": "1024x1024",
-      "target": { "w": 256, "h": 256 },
+      "target": {
+        "w": 256,
+        "h": 256
+      },
       "colors": 24,
       "kernel": "nearest"
     },
@@ -25,7 +28,10 @@
       "group": "icons",
       "prompt": "A single inventory icon of a rat's slimy green secretion: one glossy teardrop-shaped blob of toxic green goo with a single white highlight pixel, centered, filling about 80% of the canvas, isolated on a transparent background. Palette: 3 shades of acid green plus black outline and one white highlight.",
       "size": "1024x1024",
-      "target": { "w": 16, "h": 16 },
+      "target": {
+        "w": 16,
+        "h": 16
+      },
       "colors": 6
     },
     {
@@ -33,7 +39,10 @@
       "group": "icons",
       "prompt": "A single inventory icon of a flat puddle of rat secretion: a wide, low oval splat of dark green slime with two small satellite drops, viewed from slightly above, centered, isolated on a transparent background. Palette: 3 shades of swamp green plus black outline.",
       "size": "1024x1024",
-      "target": { "w": 16, "h": 16 },
+      "target": {
+        "w": 16,
+        "h": 16
+      },
       "colors": 6
     },
     {
@@ -41,7 +50,10 @@
       "group": "icons",
       "prompt": "A single inventory icon of a brown rat dropping: a small dark brown pellet pile of three elongated pellets with tiny green stink wisps above, centered, isolated on a transparent background. Palette: 2 shades of dark brown, 1 pale green, black outline.",
       "size": "1024x1024",
-      "target": { "w": 16, "h": 16 },
+      "target": {
+        "w": 16,
+        "h": 16
+      },
       "colors": 6
     },
     {
@@ -49,7 +61,10 @@
       "group": "sprites",
       "prompt": "A single sprite frame of a grey street rat, side view facing RIGHT, in a crouched take-off pose: hind legs bent and compressed, body coiled low, head slightly raised, tail curled behind, ready to leap. Fits a 32x32 pixel sprite box, rat body about 24 pixels wide and 12 pixels tall, isolated on a transparent background. Palette: 3 shades of grey fur, pink ears/nose/tail, a black eye, black outline.",
       "size": "1024x1024",
-      "target": { "w": 32, "h": 32 },
+      "target": {
+        "w": 32,
+        "h": 32
+      },
       "colors": 8
     },
     {
@@ -57,7 +72,10 @@
       "group": "sprites",
       "prompt": "A single sprite frame of a grey street rat, side view facing RIGHT, in mid-air leap: body fully stretched horizontally, front paws extended forward, hind legs extended back, tail straight out behind, belly visible. Same character as a crouching take-off frame: 3 shades of grey fur, pink ears/nose/tail, a black eye, black outline. Fits a 32x32 pixel sprite box, isolated on a transparent background.",
       "size": "1024x1024",
-      "target": { "w": 32, "h": 32 },
+      "target": {
+        "w": 32,
+        "h": 32
+      },
       "colors": 8
     },
     {
@@ -65,7 +83,10 @@
       "group": "sprites",
       "prompt": "A single sprite frame of a chubby adult human in a stained white apron (a cook), side view facing LEFT, PANICKING: both arms thrown straight up, mouth wide open, eyes as big white circles, knees bent mid-run, one foot forward. Fits a 32x48 pixel sprite box, isolated on a transparent background. Palette: skin tone, white apron, dark blue trousers, brown hair, black outline, red mouth.",
       "size": "1024x1536",
-      "target": { "w": 32, "h": 48 },
+      "target": {
+        "w": 32,
+        "h": 48
+      },
       "colors": 10
     },
     {
@@ -73,7 +94,10 @@
       "group": "sprites",
       "prompt": "A single sprite frame of a chubby adult human cook in a stained white apron, side view facing LEFT, PANICKING, running frame two: arms up and bent at the elbows waving, legs crossed mid-stride, hair standing up, three sweat drops flying off the head. Same character design as other frames: skin tone, white apron, dark blue trousers, brown hair, black outline. Fits a 32x48 pixel sprite box, isolated on a transparent background.",
       "size": "1024x1536",
-      "target": { "w": 32, "h": 48 },
+      "target": {
+        "w": 32,
+        "h": 48
+      },
       "colors": 10
     },
     {
@@ -81,7 +105,10 @@
       "group": "sprites",
       "prompt": "A single sprite frame of a chubby adult human cook in a stained white apron, side view facing LEFT, PANICKING, running frame three: body leaning forward, arms flung back, long stride with both feet off the ground, mouth open screaming. Same character design as other frames: skin tone, white apron, dark blue trousers, brown hair, black outline. Fits a 32x48 pixel sprite box, isolated on a transparent background.",
       "size": "1024x1536",
-      "target": { "w": 32, "h": 48 },
+      "target": {
+        "w": 32,
+        "h": 48
+      },
       "colors": 10
     },
     {
@@ -91,7 +118,10 @@
       "size": "1536x1024",
       "background": "opaque",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 16,
       "kernel": "lanczos3"
     },
@@ -102,7 +132,10 @@
       "size": "1536x1024",
       "background": "transparent",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 16,
       "kernel": "lanczos3"
     },
@@ -113,73 +146,94 @@
       "size": "1536x1024",
       "background": "transparent",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 12,
       "kernel": "lanczos3"
     },
     {
       "id": "bg_kitchen_far",
       "group": "backgrounds",
-      "prompt": "Parallax background layer, FAR plane, for a KITCHEN level seen from inside the room: a pale cream tiled wall with a grout grid, a dark window with night outside and a hanging bare light bulb, a wall clock, a calendar. Opaque, horizontally tileable, wide 16:9 composition. Palette: cream, beige, light brown, dark blue window, warm yellow bulb, 16 colors total.",
+      "prompt": "Parallax background layer, FAR plane, for a canteen KITCHEN level seen from rat height (camera low at floor level looking at the back wall): ONLY the far back wall, nothing else - a pale cream ceramic tiled wall with a grout grid and grease stains, a dark window with night outside, a row of dim fluorescent tube lights under the ceiling giving a cold greenish-white light, a wall clock, a greasy ventilation hood. NO floor, NO ground line, no counters, no foreground objects: the wall fills the whole image from top to bottom. Opaque. Horizontally tileable: the left and right edges must match seamlessly, the tile grid continues across the edge. Wide 16:9 composition. Palette: cream, beige, light brown grout, dark blue window, pale green-white fluorescent glow, 16 colors total.",
       "size": "1536x1024",
       "background": "opaque",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 16,
       "kernel": "lanczos3"
     },
     {
       "id": "bg_kitchen_mid",
       "group": "backgrounds",
-      "prompt": "Parallax background layer, MIDDLE plane, for a KITCHEN level: a row of upper wooden cabinets along the top third, a shelf with jars and pots, a hanging ladle and pan, a fire extinguisher on the wall; the rest of the image fully TRANSPARENT. Horizontally tileable, wide 16:9 composition. Palette: light brown wood, steel grey, red extinguisher, 16 colors total.",
+      "prompt": "Parallax background layer, MIDDLE plane, for a canteen KITCHEN level seen from rat height: a continuous row of stainless steel counters and work tables with cabinets underneath, a tall white industrial fridge, a steel sink, a gas stove, pots and ladles hanging from a rail above the counters, a red fire extinguisher. All of this occupies ONLY the bottom 35% of the image as one continuous horizontal strip standing on a floor line at the very bottom edge; everything above the hanging pots (the upper 65% of the image) is fully TRANSPARENT. Horizontally tileable: the counter row continues seamlessly across the left and right edges (no end pieces at the sides). Wide 16:9 composition. Palette: steel grey, white, light brown wood, red extinguisher, dark grey, 16 colors total. Keep the outer 5% at both the left and right edges free of large objects (plain counter and wall only) so the image wraps seamlessly.",
       "size": "1536x1024",
       "background": "transparent",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 16,
       "kernel": "lanczos3"
     },
     {
       "id": "bg_kitchen_near",
       "group": "backgrounds",
-      "prompt": "Parallax background layer, NEAR plane, for a KITCHEN level: foreground details only along the bottom 15% - a mop in a bucket, a crumpled paper bag, a dropped fork, crumbs, a cockroach; the rest fully TRANSPARENT. Horizontally tileable, wide 16:9 composition. Palette: grey, brown, steel, 12 colors total.",
+      "prompt": "Parallax background layer, NEAR plane, for a canteen KITCHEN level seen from rat height: a ground-level strip ONLY along the bottom 25% of the image - the edge of a checkered beige-and-brown tiled floor with a dark baseboard, a mop in a bucket, a crumpled paper bag, a dropped fork, bread crumbs, a cockroach, a puddle of dishwater; everything above the bottom 25% is fully TRANSPARENT. Horizontally tileable: the floor strip continues seamlessly across the left and right edges. Wide 16:9 composition. Palette: beige, brown, grey, steel, 12 colors total. Keep the outer 5% at both the left and right edges free of objects (plain floor tiles and baseboard only, at the same height on both sides) so the image wraps seamlessly.",
       "size": "1536x1024",
       "background": "transparent",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 12,
       "kernel": "lanczos3"
     },
     {
       "id": "bg_roof_far",
       "group": "backgrounds",
-      "prompt": "Parallax background layer, FAR plane, for a ROOFTOP level at dusk: a big gradient-free sky in flat bands of deep blue, violet and orange, a thin crescent moon, a flat silhouette skyline of apartment blocks, TV antennas and a factory chimney with a trickle of smoke. Opaque, horizontally tileable, wide 16:9 composition. Palette: 4 flat sky bands, dark slate silhouettes, 16 colors total.",
+      "prompt": "Parallax background layer, FAR plane, for a ROOFTOP level at night: ONLY sky and a distant city skyline, no ground, no rooftops, no foreground objects - a night sky in flat bands of deep navy blue, violet and a thin orange-pink glow at the horizon, a few stars, a crescent moon, a flat silhouette skyline of distant apartment blocks, a TV tower and a factory chimney with tiny lit windows, the skyline silhouette being a thin band in the bottom 20% of the image. Opaque. Horizontally tileable: the left and right edges match seamlessly. Wide 16:9 composition. Palette: navy, violet, orange glow, dark slate silhouettes, warm yellow windows, 16 colors total.",
       "size": "1536x1024",
       "background": "opaque",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 16,
       "kernel": "lanczos3"
     },
     {
       "id": "bg_roof_mid",
       "group": "backgrounds",
-      "prompt": "Parallax background layer, MIDDLE plane, for a ROOFTOP level: the tops of neighbouring roofs in the bottom 40% - tar paper, brick chimneys, ventilation pipes, a satellite dish, a clothes line with laundry, a water tank; everything above fully TRANSPARENT. Horizontally tileable, wide 16:9 composition. Palette: dark grey, brick red, rust, dull white laundry, 16 colors total.",
+      "prompt": "Parallax background layer, MIDDLE plane, for a ROOFTOP level at night: the tops of neighbouring rooftops as one continuous horizontal strip in the bottom 35% of the image - tar paper roofs, brick chimneys, ventilation pipes, TV antennas, a satellite dish, a water tank, a clothes line with laundry; everything above the chimneys and antennas (the upper 65%) is fully TRANSPARENT. Horizontally tileable: the row of rooftops continues seamlessly across the left and right edges (no end walls at the sides). Wide 16:9 composition. Palette: dark grey, brick red, rust, dull white laundry, 16 colors total. Keep the outer 5% at both the left and right edges free of objects (plain flat roof parapet only, at the same height on both sides) so the image wraps seamlessly.",
       "size": "1536x1024",
       "background": "transparent",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 16,
       "kernel": "lanczos3"
     },
     {
       "id": "bg_roof_near",
       "group": "backgrounds",
-      "prompt": "Parallax background layer, NEAR plane, for a ROOFTOP level: foreground details only along the bottom 15% - a rusty railing segment, a roof edge with a gutter, a few pigeon feathers, a puddle on tar paper; the rest fully TRANSPARENT. Horizontally tileable, wide 16:9 composition. Palette: dark slate, rust, grey, 12 colors total.",
+      "prompt": "Parallax background layer, NEAR plane, for a ROOFTOP level at night: a ground-level strip ONLY along the bottom 25% of the image - a flat roof surface of grey gravel and black tar paper with patched seams, a low rusty railing segment, a roof edge with a gutter, a few pigeon feathers, a puddle; everything above the bottom 25% is fully TRANSPARENT. Horizontally tileable: the roof strip continues seamlessly across the left and right edges. Wide 16:9 composition. Palette: dark slate, grey gravel, rust, black tar, 12 colors total. Keep the outer 5% at both the left and right edges free of objects (plain gravel and railing only, at the same height on both sides) so the image wraps seamlessly.",
       "size": "1536x1024",
       "background": "transparent",
       "crop": "cover",
-      "target": { "w": 480, "h": 270 },
+      "target": {
+        "w": 480,
+        "h": 270
+      },
       "colors": 12,
       "kernel": "lanczos3"
     }

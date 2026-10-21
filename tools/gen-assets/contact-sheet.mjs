@@ -1,5 +1,5 @@
 // Contact sheet: processed previews (nearest-upscaled) + raw thumbnails, with labels.
-// Usage: node contact-sheet.mjs <projectRoot> [variantSuffix]
+// Usage: node contact-sheet.mjs <projectRoot> [batch]   (batch 1 = default sheet, batch 2 = kitchen/roof parallax -> contact-sheet-2.png)
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { readFile, access } from 'node:fs/promises';
@@ -10,7 +10,13 @@ const sharp = require('sharp');
 
 const gen = join(root, 'assets/generated');
 const spec = JSON.parse(await readFile(join(root, 'tools/gen-assets/prompts.json'), 'utf8'));
-const ids = ['secretion_drop', 'secretion_puddle', 'secretion_smear', 'rat_jump_1', 'human_panic_1', 'bg_yard_far', 'bg_yard_mid', 'bg_yard_near'];
+const batch = String(process.argv[3] ?? '1');
+const batches = {
+  '1': { ids: ['secretion_drop', 'secretion_puddle', 'secretion_smear', 'rat_jump_1', 'human_panic_1', 'bg_yard_far', 'bg_yard_mid', 'bg_yard_near'], out: 'contact-sheet.png', title: 'generated batch 1 (Codex CLI / gpt-image-2, chroma #FF00FF)' },
+  '2': { ids: ['bg_kitchen_far', 'bg_kitchen_mid', 'bg_kitchen_near', 'bg_roof_far', 'bg_roof_mid', 'bg_roof_near'], out: 'contact-sheet-2.png', title: 'generated batch 2 — kitchen/roof parallax (Codex CLI / gpt-image-2, chroma #FF00FF)' },
+};
+if (!batches[batch]) { console.error('unknown batch', batch); process.exit(2); }
+const ids = batches[batch].ids;
 
 const PAD = 16, LABEL = 28, CELL_W = 480, CELL_H = 270 + LABEL + 8;
 const checker = async (w, h) => {
@@ -67,9 +73,9 @@ for (const id of ids) {
 
 const cols = 2, rows = Math.ceil(cells.length / cols);
 const W = PAD + cols * (CELL_W + PAD), H = PAD + rows * (CELL_H + PAD) + 30;
-const title = await label(`Krysy krysyat — generated batch 1 (Codex CLI / gpt-image-2, chroma #FF00FF) — ${new Date().toISOString().slice(0, 10)}`, W - 2 * PAD);
+const title = await label(`Krysy krysyat — ${batches[batch].title} — ${new Date().toISOString().slice(0, 10)}`, W - 2 * PAD);
 const comp = [{ input: title, left: PAD, top: 4 }];
 cells.forEach((c, i) => comp.push({ input: c, left: PAD + (i % cols) * (CELL_W + PAD), top: 30 + PAD + Math.floor(i / cols) * (CELL_H + PAD) }));
-const out = join(gen, 'contact-sheet.png');
+const out = join(gen, batches[batch].out);
 await sharp({ create: { width: W, height: H, channels: 4, background: '#181818' } }).composite(comp).png().toFile(out);
 console.log('wrote', out, `${W}x${H}`);
