@@ -1,6 +1,6 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
-import { tex, itemIcon, drawLevel, THEMES, RAT, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, type SpriteDef } from './sprites';
+import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER } from './sprites';
 import { parseMap, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event } from '@krysy/sim';
 import { Touch } from './input';
 import { Net, type LobbyMsg, type ResultsMsg } from './net';
@@ -47,6 +47,19 @@ $('join').onclick = async () => {
   try { await (navigator as any).wakeLock?.request('screen'); } catch {}
 };
 $('leave').onclick = () => { net.close(); showJoin(); };
+// список комнат на экране входа: тап по комнате подставляет код
+const httpBase = serverUrl.replace(/^ws/, 'http').replace(/\/ws$/, '');
+async function pollRooms() {
+  if (phase !== 'join') return;
+  try {
+    const list: { code: string; phase: string; map: string; players: string[] }[] = await (await fetch(`${httpBase}/rooms`, { cache: 'no-store' })).json();
+    $('rooms').innerHTML = list.length
+      ? 'Комнаты сейчас: ' + list.map((r) => `<span class="room ${r.phase}" data-code="${r.code}"><b>${r.code}</b> · ${esc(r.players.join(', ') || 'пусто')} · ${r.phase === 'raid' ? 'в Вылазке: ' + esc(r.map) : r.phase === 'results' ? 'итоги' : 'в Норе'}</span>`).join('')
+      : 'Открытых комнат нет — создай свою: введи любой код.';
+    for (const el of $('rooms').querySelectorAll<HTMLElement>('.room')) el.onclick = () => { codeEl.value = el.dataset.code!; };
+  } catch { $('rooms').textContent = 'сервер не отвечает'; }
+}
+setInterval(pollRooms, 3000); pollRooms();
 $('start').onclick = () => net.send({ t: 'start' });
 $('back').onclick = () => { net.send({ t: 'back' }); showLobby(); };
 function randomCode() { const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 4; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
@@ -154,31 +167,38 @@ function buildLevel(l: Level) {
 }
 function selectedMapId() { return lobby?.map ?? 'yard'; }
 
-type View = { c: Container; sp: Sprite; extra: Sprite; label: Text; bar: Graphics; anim: number };
+type View = { c: Container; sp: Sprite; extra: Sprite; g: Graphics; label: Text; bar: Graphics; anim: number };
 const views = new Map<string, View>();
 function view(key: string, t?: Texture): View {
   let v = views.get(key);
   if (!v) {
-    const c = new Container(), sp = new Sprite(t ?? Texture.EMPTY), extra = new Sprite(Texture.EMPTY);
+    const c = new Container(), sp = new Sprite(t ?? Texture.EMPTY), extra = new Sprite(Texture.EMPTY), g = new Graphics();
     extra.visible = false;
     const label = new Text({ text: '', style: { fontFamily: 'monospace', fontSize: 7, fill: 0xe8d9c0, fontWeight: '700' } }); label.anchor.set(0.5, 1);
     const bar = new Graphics();
-    c.addChild(extra, sp, label, bar); ents.addChild(c);
-    v = { c, sp, extra, label, bar, anim: 0 }; views.set(key, v);
+    c.addChild(extra, sp, g, label, bar); ents.addChild(c);
+    v = { c, sp, extra, g, label, bar, anim: 0 }; views.set(key, v);
   }
   return v;
 }
-const COLORS = [0xbfb6aa, 0x8fb0c8, 0xd0b080, 0x9fc88a, 0xc890c0, 0x8fc8bf];
+const COLORS = [0x8f8378, 0x6f8fa3, 0xa38f6f, 0x7fa36f, 0xa36f9a, 0x6fa39b];
 const colorOf = (id: string) => COLORS[(Number(id) - 1 + 600) % COLORS.length];
-const ratTex = (k: string) => tex('rat_' + k, RAT[k]);
+// крыса — векторная, как в прототипах (пользователю она нравится больше спрайта)
 function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolean; down: boolean; dead: boolean; vx: number }, color: number, t: number) {
-  const k = r.dead ? 'dead' : r.down ? 'down' : !r.grounded ? 'jump' : Math.abs(r.vx) > 10 ? (Math.floor(t / 6) % 2 ? 'run1' : 'run2') : 'idle';
-  v.sp.texture = ratTex(k); v.sp.tint = r.dead ? 0xffffff : color;
-  v.sp.anchor.set(0.5, 0); v.sp.position.set(RAT_W / 2, 0); v.sp.scale.x = r.facing;
-  v.extra.visible = r.biting && !r.down && !r.dead;
-  if (v.extra.visible) { v.extra.texture = tex('bite', BITE); v.extra.anchor.set(0, 0.5); v.extra.position.set(r.facing > 0 ? RAT_W : 0, 4); v.extra.scale.x = r.facing; }
+  const b = v.g; b.clear(); v.sp.visible = false; v.extra.visible = false;
+  if (r.dead) { b.rect(0, 6, 14, 4).fill(0x333333); return; }
+  if (r.down) { b.ellipse(7, 7, 8, 3).fill(color); b.circle(r.facing > 0 ? 13 : 1, 7, 2.5).fill(color + 0x0d0c0c); b.rect(5, 2, 1, 1).fill(0xffffff); return; }
+  const sq = r.grounded && !r.biting ? 0 : 1;
+  const wag = Math.abs(r.vx) > 10 ? Math.sin(t / 3) * 3 : Math.sin(t / 8) * 1.5;
+  b.moveTo(r.facing > 0 ? 0 : 14, 7).lineTo(r.facing > 0 ? -9 : 23, 4 + wag).stroke({ width: 1.5, color: 0xc9a58a });
+  b.roundRect(0, 1 + sq, 14, 9 - sq, 4).fill(color);
+  b.circle(r.facing > 0 ? 13 : 1, 4, 3.2).fill(color + 0x0d0c0c);
+  b.circle(r.facing > 0 ? 15 : -1, 4, 0.9).fill(0xffb0c0);
+  b.circle(r.facing > 0 ? 11 : 3, 1.5, 1.6).fill(0xd9a5a5);
+  b.circle(r.facing > 0 ? 13.5 : 0.5, 3, 0.7).fill(0x111111);
+  if (r.grounded && Math.abs(r.vx) > 10) { const ph = Math.floor(t / 5) % 2; b.rect(2 + ph * 2, 9, 2, 1).fill(color + 0x0d0c0c); b.rect(9 - ph * 2, 9, 2, 1).fill(color + 0x0d0c0c); }
+  if (r.biting) { const cx = r.facing > 0 ? 19 : -5; const a0 = r.facing > 0 ? -1 : Math.PI - 1; b.arc(cx, 4, 6, a0, a0 + 2).stroke({ width: 2, color: 0xfff1b0 }); }
 }
-const BITE: SpriteDef = ['...w', '..ww', '.ww.', 'ww..', '.ww.', '..ww', '...w'];
 const LABEL_STYLE: Record<string, { text: string; fill: number; size: number }> = {
   windup: { text: '!!', fill: 0xff4040, size: 10 }, panic: { text: '!', fill: 0xffd040, size: 9 }, chase: { text: '>', fill: 0xff8040, size: 9 }, sleep: { text: 'z', fill: 0x9fb0ff, size: 8 },
 };
@@ -241,7 +261,7 @@ app.ticker.add(() => {
     const rx = prevX + (me.x - prevX) * a, ry = prevY + (me.y - prevY) * a;
     const v = view('r' + myId); v.c.position.set(Math.round(rx), Math.round(ry)); v.label.text = ''; seen.add('r' + myId);
     drawRat(v, { facing: me.facing, grounded: me.grounded, biting: me.biteLeft > 0, down: me.down, dead: me.dead, vx: me.vx }, colorOf(myId), frame);
-    v.sp.alpha = me.inv > 0 && Math.floor(frame / 3) % 2 ? 0.4 : 1;
+    v.g.alpha = me.inv > 0 && Math.floor(frame / 3) % 2 ? 0.4 : 1;
     v.bar.clear(); if (me.down) v.bar.rect(0, -6, 14 * (me.revive / RULES.reviveTime), 2).fill(0x6fb06f);
     else if (me.exitProg > 0) v.bar.rect(0, -6, 14 * me.exitProg, 2).fill(0xe8d9c0);
     camX = rx; camY = ry;
@@ -313,7 +333,7 @@ app.ticker.add(() => {
         if (key !== lastPocketsKey) {
           lastPocketsKey = key;
           let cells = ''; let used = 0;
-          for (const k of meS.pk) { const kd = KINDS[k]; used += kd.size; cells += `<span class="full" style="width:${22 * kd.size + 2 * (kd.size - 1)}px"><img src="${itemIcon(k)}" alt="${kd.name}" title="${kd.name}"/></span>`; }
+          for (const k of meS.pk) { const kd = KINDS[k]; used += kd.size; cells += `<span class="full t-${kd.type}" style="width:${36 * kd.size + 3 * (kd.size - 1)}px"><img src="${itemIcon(k, 3)}" alt="${kd.name}" title="${kd.name}"/><i>${kd.name}</i></span>`; }
           for (let i = used; i < RULES.pockets; i++) cells += '<span></span>';
           $('pockets').innerHTML = cells;
         }
@@ -325,4 +345,4 @@ app.ticker.add(() => {
   const cy = Math.max(0, Math.min(level.rows * TILE - app.screen.height / scale, camY + RAT_H / 2 - app.screen.height / scale / 2));
   stage.position.set(-Math.round(cx * scale), -Math.round(cy * scale));
 });
-let lastPocketsKey = '';
+let lastPocketsKey: string | null = null;

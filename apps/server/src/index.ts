@@ -15,6 +15,11 @@ const rooms = new Map<string, Room>();
 let nextId = 1;
 
 const http = createServer((req, res) => {
+  if (req.url === '/rooms') {
+    const list = [...rooms.values()].map((r) => ({ code: r.code, phase: r.phase, map: MAPS[r.map]?.name ?? r.map, players: [...r.peers.values()].map((p) => p.name) }));
+    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(list)); return;
+  }
   if (req.url === '/health' || req.url === '/') {
     const r: Record<string, unknown> = {};
     for (const [c, room] of rooms) r[c] = { phase: room.phase, map: room.map, rats: room.peers.size, queues: [...room.peers.values()].map((p) => p.queue.length) };

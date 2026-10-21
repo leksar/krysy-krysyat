@@ -139,24 +139,24 @@ export const HUMANS: Record<string, { a: SpriteDef; b: SpriteDef }> = {
   P: walk(
     ['....hhhh....', '...hhhhhh...', '...ssssss...', '...sksssk...', '...ssssss...', '....ssss....', '.....ss.....'],
     ['...bbbbbb...', '..bbbbbbbb..', '.sbbbbbbbbs.', '.sbbBbbBbbs.', '.sbbbbbbbbs.', '..bbbbbbbb..', '...BBBBBB...', '...nnnnnn...', '...nnnnnn...'],
-    ['...nnn.nnn..', '...nnn.nnn..', '...nnn..nnn.', '...nnn..nnn.', '...nnn..nnn.', '..nnn....nnn', '..kkk....kkk', '..kkk....kkk', '............', '............', '............', '............'],
-    ['...nnnnnn...', '...nnnnnn...', '...nnnnnn...', '....nnnn....', '....nnnn....', '....nnnn....', '....kkkk....', '....kkkk....', '............', '............', '............', '............']),
+    ['...nnn.nnn..', '...nnn.nnn..', '...nnn..nnn.', '...nnn..nnn.', '..nnn...nnn.', '..nnn....nnn', '..nnn....nnn', '..nnn....nnn', '..nnn....nnn', '..nnn....nnn', '.DDDD...DDDD', '.DDDD...DDDD'],
+    ['...nnnnnn...', '...nnnnnn...', '...nnnnnn...', '....nnnn....', '....nnnn....', '....nnnn....', '....nnnn....', '....nnnn....', '....nnnn....', '....nnnn....', '...DDDDDD...', '...DDDDDD...']),
   // Дворник 12×28: оранжевый жилет, борода, метла отдельным спрайтом
   D: walk(
     ['....nnnn....', '...nnnnnn...', '...ssssss...', '...sksssk...', '...sSSSSs...', '....SSSS....', '.....SS.....'],
     ['...oooooo...', '..oobbbboo..', '.soobbbboos.', '.soobBbBoos.', '.soobbbboos.', '..oobbbboo..', '...OOOOOO...', '...nnnnnn...', '...nnnnnn...'],
-    ['...nnn.nnn..', '...nnn.nnn..', '...nnn..nnn.', '...nnn..nnn.', '...nnn..nnn.', '..nnn....nnn', '..kkk....kkk', '..kkk....kkk', '............', '............', '............', '............'],
-    ['...nnnnnn...', '...nnnnnn...', '...nnnnnn...', '....nnnn....', '....nnnn....', '....nnnn....', '....kkkk....', '....kkkk....', '............', '............', '............', '............']),
+    ['...nnn.nnn..', '...nnn.nnn..', '...nnn..nnn.', '...nnn..nnn.', '..nnn...nnn.', '..nnn....nnn', '..nnn....nnn', '..nnn....nnn', '..nnn....nnn', '..nnn....nnn', '.DDDD...DDDD', '.DDDD...DDDD'],
+    ['...nnnnnn...', '...nnnnnn...', '...nnnnnn...', '....nnnn....', '....nnnn....', '....nnnn....', '....nnnn....', '....nnnn....', '....nnnn....', '....nnnn....', '...DDDDDD...', '...DDDDDD...']),
   // Ребёнок 10×18: рыжий, жёлтая футболка
   K: walk(
     ['...HHHH...', '..HHHHHH..', '..ssssss..', '..sksssk..', '..ssssss..', '...ssss...'],
     ['..yyyyyy..', '.syyyyyys.', '.syyYyyys.', '..yyyyyy..', '..YYYYYY..', '..bbbbbb..'],
-    ['..bb..bb..', '..bb..bb..', '.bb....bb.', '.kk....kk.', '..........', '..........'],
-    ['...bbbb...', '...bbbb...', '...bbbb...', '...kkkk...', '..........', '..........']),
+    ['..bb..bb..', '..bb..bb..', '.bb....bb.', '.bb....bb.', '.DD....DD.', '.DD....DD.'],
+    ['...bbbb...', '...bbbb...', '...bbbb...', '...bbbb...', '...DDDD...', '...DDDD...']),
   // Пьяный 14×20: сидит, бутылка
   Z: {
-    a: ['....hhhh......', '...hhhhhh.....', '...ssssss.....', '...sSsssS.....', '...ssssss.....', '....ssss......', '..vvvvvvvv....', '.svvvvvvvvs...', '.svvVvvVvvs.v.', '.svvvvvvvvsvv.', '..vvvvvvvv.vv.', '..VVVVVVVV.vv.', '..nnnnnnnnnnnn', '..nnnnnnnnnnnn', '..nnn.....nnnn', '..nnn.....nnnn', '..kkk.....kkkk', '..............', '..............', '..............'],
-    b: ['....hhhh......', '...hhhhhh.....', '...ssssss.....', '...sSsssS.....', '...ssssss.....', '....ssss......', '..vvvvvvvv....', '.svvvvvvvvs...', '.svvVvvVvvs.v.', '.svvvvvvvvsvv.', '..vvvvvvvv.vv.', '..VVVVVVVV.vv.', '..nnnnnnnnnnnn', '..nnnnnnnnnnnn', '..nnn.....nnnn', '..nnn.....nnnn', '..kkk.....kkkk', '..............', '..............', '..............'],
+    a: ['....hhhh......', '...hhhhhh.....', '...ssssss.....', '...sSsssS.....', '...ssssss.....', '....ssss......', '..vvvvvvvv....', '.svvvvvvvvs...', '.svvVvvVvvs.v.', '.svvvvvvvvsvv.', '..vvvvvvvv.vv.', '..VVVVVVVV.vv.', '..nnnnnnnnnnnn', '..nnnnnnnnnnnn', '..nnn.....nnnn', '..nnn.....nnnn', '..nnn.....nnnn', '..nnn.....nnnn', '.DDDD....DDDDD', '.DDDD....DDDDD'],
+    b: ['....hhhh......', '...hhhhhh.....', '...ssssss.....', '...sSsssS.....', '...ssssss.....', '....ssss......', '..vvvvvvvv....', '.svvvvvvvvs...', '.svvVvvVvvs.v.', '.svvvvvvvvsvv.', '..vvvvvvvv.vv.', '..VVVVVVVV.vv.', '..nnnnnnnnnnnn', '..nnnnnnnnnnnn', '..nnn.....nnnn', '..nnn.....nnnn', '..nnn.....nnnn', '..nnn.....nnnn', '.DDDD....DDDDD', '.DDDD....DDDDD'],
   },
 };
 export const BROOM: SpriteDef = ['..q', '..q', '..q', '..q', '..q', '..q', '..q', '..q', '..q', '..q', '.yyy', 'yyyy', 'yYYy', 'YYYY'];
