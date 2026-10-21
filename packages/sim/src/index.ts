@@ -93,6 +93,7 @@ export type Rat = Body & {
   dragMul: number;          // множитель скорости от тяжести (сервер считает, клиент повторяет)
   exitProg: number;         // прогресс выхода
   climb?: boolean;          // тащит тяжёлое, но груз выше — можно прыгнуть следом
+  nofitCd?: number;         // чтобы «не пролезает» не сыпалось каждый тик
   banked: string[];         // вынесенное (после выхода)
   hits: number;
 };
@@ -479,7 +480,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
   // --- Крысы: лежание, подъём, Выход, выброс ---
   for (const r of alive) {
     const inp = inputs.get(r.id) ?? EMPTY_INPUT;
-    r.inv = Math.max(0, r.inv - dt);
+    r.inv = Math.max(0, r.inv - dt); if (r.nofitCd) r.nofitCd -= dt;
     if (r.down) {
       r.downLeft -= dt;
       if (r.downLeft <= 0) { r.dead = true; r.down = false; spill(w, r); ev(w, 'dead', r.x, r.y, r.name); }
@@ -512,8 +513,8 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
       for (const e of l.exits) {
         if (!e.open || !overlap(r, { x: e.x - 4, y: e.y - 4, w: 24, h: 24 })) continue;
         const heavy = dragging ? w.items.find((i) => i.id === r.grab) : undefined;
-        if (e.type === '3' && (r.carry || heavy)) { ev(w, 'nofit', r.x, r.y, heavy ? 'heavy3' : 'carry3'); continue; }
-        if (e.type === '2' && heavy) { ev(w, 'nofit', r.x, r.y, 'heavy2'); continue; } // в Люк тяжёлое не затащишь
+        const nofit = e.type === '3' && (r.carry || heavy) ? (heavy ? 'heavy3' : 'carry3') : e.type === '2' && heavy ? 'heavy2' : null; // в Люк тяжёлое не затащишь
+        if (nofit) { if ((r.nofitCd ?? 0) <= 0) { ev(w, 'nofit', r.x, r.y, nofit); r.nofitCd = 1.5; } continue; }
         exiting = true; r.exitProg += dt / RULES.exitTime[e.type];
         if (r.exitProg >= 1) {
           r.exited = true; r.banked = r.pockets.slice(); if (r.carry) r.banked.push(r.carry); r.pockets = []; r.carry = null;

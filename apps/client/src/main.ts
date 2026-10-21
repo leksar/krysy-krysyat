@@ -369,10 +369,13 @@ function showResults(m: ResultsMsg) {
 
 // ---------- события → тосты ----------
 let toastTimer = 0;
-function toast(t: string) { const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove('on'), 2200); }
+let lastToast = '', lastToastAt = 0;
+function toast(t: string) { const now = performance.now(); if (t === lastToast && now - lastToastAt < 600) return; lastToast = t; lastToastAt = now; const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove('on'), 2200); }
 const EVENT_SFX: Record<string, string> = { grab: 'drop', drop: 'drop', hit: 'hit', hurt: 'hurt', pick: 'pick', stomp: 'stomp', swing: 'swing', scream: 'scream', panic: 'panic', steal: 'steal', pigeondead: 'pigeondead', kill: 'kill', cat: 'cat', drink: 'drink', mark: 'mark', eat: 'eat', infect: 'infect', sick: 'sick', weak: 'sick', down: 'down', dead: 'dead', revive: 'revive', exit: 'exit', luk: 'luk', stage: 'stage', nofit: 'nofit', catdead: 'kill' };
+const lastSfxAt = new Map<string, number>();
 function onEvent(e: Event) {
   const sfx = EVENT_SFX[e.k];
+  if (sfx) { const now = performance.now(); if (now - (lastSfxAt.get(sfx) ?? 0) < 70) return; lastSfxAt.set(sfx, now); } // одинаковые события каждый тик (nofit у выхода) — не долбить звуком и тостом
   if (sfx) { const g = e.x || e.y ? (me ? falloff(e.x - me.x, e.y - me.y) : 0.5) : 1; audio.play(sfx, g); }
   switch (e.k) {
     case 'stage': toast(`⚠️ ${e.a}`); break;
@@ -433,9 +436,9 @@ function buildLevel(l: Level, themeId: string) {
   void buildBackdrop(themeId);
   const t = Texture.from(drawLevel(l.cols, l.rows, l.solid, theme, !!PARALLAX[themeId])); t.source.scaleMode = 'nearest';
   levelSprite = new Sprite(t); stage.addChildAt(levelSprite, 0);
-  for (const m of marks.children) m.destroy(); marks.removeChildren();
+  for (const m of [...marks.children]) m.destroy({ children: true }); marks.removeChildren(); // копия массива: destroy() удаляет из children, иначе половина утекает
   for (const wtr of l.water) { const s = new Sprite(tex('water', WATER)); s.position.set(wtr.x, wtr.y); marks.addChild(s); const t = new Text({ text: 'лужа', style: { fontFamily: 'monospace', fontSize: 6, fill: 0x9fd8ff } }); t.anchor.set(0.5, 1); t.position.set(wtr.x + 8, wtr.y + 9); marks.addChild(t); }
-  for (const v of ents.children) v.destroy(); ents.removeChildren();
+  for (const v of [...ents.children]) v.destroy({ children: true }); ents.removeChildren();
   views.clear();
 }
 
@@ -685,7 +688,7 @@ app.ticker.add(() => {
           for (const it of s1.it) { const sz = itemSize(it[1]); if (sz === 1) continue; const d = Math.hypot(it[2] + 8 - (me.x + 7), it[3] + 4 - (me.y + 5)); if (d < 26) { hint = sz === 3 ? `${KINDS[it[1]].name}: тяжёлое — держи ДЕЙСТ. и тащи к Щели в заборе (сила ${me.mods.strength.toFixed(1)}/${RULES.heavyMass}: ${me.mods.strength >= RULES.heavyMass ? 'ступеньки по 2' : 'ступеньки по 1, зови напарника'})` : `${KINDS[it[1]].name}: ДЕЙСТ. — взять в зубы`; break; } }
           if (!hint && me.carry) hint = `В зубах ${KINDS[me.carry].name} · ДЕЙСТ. — выплюнуть (в Водосток не пролезет)`;
           if (!hint && level) for (const wt of level.water) { if (Math.hypot(wt.x + 8 - (me.x + 7), wt.y + 12 - (me.y + 5)) < 24) { hint = me.water ? 'Лужа: уже напилась — найди Еду и держи ДЕЙСТ., чтобы пометить' : 'Лужа: держи ДЕЙСТ. — попить, потом пометить Еду Людям'; break; } }
-          $('hint').textContent = hint;
+          if ($('hint').textContent !== hint) $('hint').textContent = hint; // не трогать DOM каждый кадр
         }
       }
     }
