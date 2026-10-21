@@ -1,7 +1,7 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER } from './sprites';
-import { generateLevel, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event } from '@krysy/sim';
+import { generateLevel, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop } from '@krysy/sim';
 import { Touch } from './input';
 import { Net, type LobbyMsg, type ResultsMsg } from './net';
 
@@ -20,6 +20,14 @@ let snaps: (Snapshot & { at: number })[] = [];
 let lobby: LobbyMsg | null = null;
 let phase: 'join' | 'lobby' | 'raid' | 'results' = 'join';
 let selectedMap = 'yard';
+let raidModsCur: RaidMods = BASE_RAID;
+let ratModsById: Record<string, RatMods> = {};
+type NoraMsg = { stash: Record<string, number>; potions: Potion[]; cauldron: number; builds: Record<string, { name: string; desc: string; level: number; max: number; cost: Record<string, number> | null }>; log: string[] };
+type MeMsg = { name: string; code: string; dna: DNA; mut: Mutations; raids: number; banked: number; mods: RatMods };
+let nora: NoraMsg | null = null, meInfo: MeMsg | null = null;
+let cauldron: string[] = [];
+// аккаунт: секретный код живёт в телефоне
+function acctCode(): string { let c = localStorage.getItem('ratCode'); if (!c) { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; c = ''; for (let i = 0; i < 12; i++) c += a[Math.floor(Math.random() * a.length)]; localStorage.setItem('ratCode', c); } return c; }
 
 const touch = new Touch($('joy'), $('knob'), $('jump'), $('bite'), $('act'));
 const net = new Net();
@@ -41,12 +49,14 @@ $('join').onclick = async () => {
   codeEl.value = code;
   localStorage.setItem('ratName', name); localStorage.setItem('room', code);
   history.replaceState(null, '', `?room=${code}`);
-  net.connect(serverUrl, name, code);
+  net.connect(serverUrl, name, code, acctCode());
   try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch {}
   try { await (screen.orientation as any).lock?.('landscape'); } catch {}
   try { await (navigator as any).wakeLock?.request('screen'); } catch {}
 };
 $('leave').onclick = () => { net.close(); showJoin(); };
+$('showAcct').onclick = (e) => { e.preventDefault(); prompt('Секретный код твоей крысы (сохрани, чтобы зайти с другого телефона):', acctCode()); };
+$('enterAcct').onclick = (e) => { e.preventDefault(); const c = prompt('Введи секретный код крысы:'); if (c && c.replace(/[^A-Za-z0-9]/g, '').length >= 6) { localStorage.setItem('ratCode', c.replace(/[^A-Za-z0-9]/g, '')); alert('Код сохранён. Входи в Нору.'); } };
 // список комнат на экране входа: тап по комнате подставляет код
 const httpBase = serverUrl.replace(/^ws/, 'http').replace(/\/ws$/, '');
 async function pollRooms() {
@@ -81,22 +91,57 @@ net.on('lobby', (m) => {
   if (host) for (const el of $('maps').querySelectorAll<HTMLElement>('.map')) el.onclick = () => net.send({ t: 'setMap', map: el.dataset.id });
   $<HTMLButtonElement>('start').disabled = !host;
   $('start').textContent = host ? 'В Вылазку' : 'Ждём хозяина комнаты…';
+  renderNora();
 });
-net.on('raid', (map, seed) => {
+net.on('raid', (map, seed, mods, ratMods) => {
+  raidModsCur = mods ?? BASE_RAID; ratModsById = ratMods ?? {};
   level = generateLevel(map, seed);
   me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0;
   buildLevel(level);
   phase = 'raid';
   $('screenLobby').classList.remove('open'); $('screenResults').classList.remove('open');
   setControls(true);
-  toast(`${MAPS[map].name}: собрать и дойти до Выхода`);
+  toast(raidModsCur.names.length ? `${MAPS[map].name} · ${raidModsCur.names.join(', ')}` : `${MAPS[map].name}: собрать и дойти до Выхода`);
 });
 net.on('results', (m) => showResults(m));
+net.on('nora', (m) => { nora = m; renderNora(); });
+net.on('me', (m) => { meInfo = m; renderNora(); });
+net.on('err', (t) => toast(t));
+net.on('drank', (fam, tier) => toast(fam ? `Мутация: ${MUTATION_NAMES[fam as Prop]} ${tier}` : 'Зелье без Доминанты — только ДНК'));
+
+function chip(kind: string, count?: number, extra = '') { const k = KINDS[kind]; return `<span class="chip ${k.type}" data-kind="${kind}" ${extra}><img src="${itemIcon(kind)}"/>${k.name}${count !== undefined ? ` <b>×${count}</b>` : ''}</span>`; }
+function propsHtml(p: Potion) { const d = dominant(p); return `<span class="props">${PROPS.filter((x) => p.props[x]).map((x) => `<span${x === d ? ' style="outline:1px solid #e8d9c0"' : ''}>${x} ${p.props[x]}</span>`).join('')}</span>`; }
+function renderNora() {
+  if (!nora) return;
+  const host = lobby?.hostId === myId;
+  const stashEntries = Object.entries(nora.stash).filter(([, n]) => n > 0).sort((a, b) => KINDS[a[0]].type.localeCompare(KINDS[b[0]].type));
+  $('stash').innerHTML = stashEntries.length ? stashEntries.map(([k, n]) => chip(k, n - cauldron.filter((c) => c === k).length)).join('') : 'пусто — всё, что вынесете с Вылазки, ляжет сюда';
+  for (const el of $('stash').querySelectorAll<HTMLElement>('.chip')) el.onclick = () => { const k = el.dataset.kind!; const have = nora!.stash[k] - cauldron.filter((c) => c === k).length; if (have > 0 && cauldron.length < nora!.cauldron) { cauldron.push(k); renderNora(); } };
+  $('cauldronSize').textContent = `(${cauldron.length}/${nora.cauldron})`;
+  let slots = ''; for (let i = 0; i < nora.cauldron; i++) slots += `<span class="slot" data-i="${i}">${cauldron[i] ? `<img src="${itemIcon(cauldron[i])}" title="${KINDS[cauldron[i]].name}"/>` : ''}</span>`;
+  const preview = cauldron.length >= 2 ? propsHtml({ id: 0, from: cauldron, props: cauldron.reduce((acc: Record<string, number>, k) => { for (const pr of (ITEM_PROPS_LOCAL[k] ?? [])) acc[pr] = (acc[pr] ?? 0) + 1; return acc; }, {}) as Potion['props'] }) : '';
+  $('cauldron').innerHTML = slots + (preview ? `<div style="margin-top:4px">Получится: ${preview}</div>` : '');
+  for (const el of $('cauldron').querySelectorAll<HTMLElement>('.slot')) el.onclick = () => { const i = Number(el.dataset.i); if (cauldron[i]) { cauldron.splice(i, 1); renderNora(); } };
+  $<HTMLButtonElement>('brewBtn').disabled = cauldron.length < 2;
+  $('potions').innerHTML = nora.potions.length ? nora.potions.map((p) => `<div class="potion ${lobby?.pour.includes(p.id) ? 'pour' : ''}">Зелье #${p.id} ${propsHtml(p)}<br/><span class="muted">из: ${p.from.map((k) => KINDS[k].name).join(', ')}</span><div class="row">${host ? `<button class="small" data-pour="${p.id}">${lobby?.pour.includes(p.id) ? 'Не лить' : 'Вылить на карту'}</button>` : ''}<button class="small" data-drink="${p.id}">Выпить</button>${dominant(p) ? `<span class="muted" style="font-size:11px">выпить → ${MUTATION_NAMES[dominant(p)!]}; вылить → ${PROPS.filter((x) => p.props[x]).map((x) => MODIFIER_NAMES[x]).join(', ')}</span>` : ''}</div></div>`).join('') : 'нет — свари в Котле';
+  for (const el of $('potions').querySelectorAll<HTMLElement>('[data-pour]')) el.onclick = () => net.send({ t: 'pour', id: Number(el.dataset.pour) });
+  for (const el of $('potions').querySelectorAll<HTMLElement>('[data-drink]')) el.onclick = () => { const p = nora!.potions.find((x) => x.id === Number(el.dataset.drink))!; const d = dominant(p); if (confirm(`Выпить Зелье #${p.id}?${d ? ` Мутация «${MUTATION_NAMES[d]}» (${MUTATION_DESC[d][Math.min(2, (meInfo?.mut[d] ?? 0))]}). ` : ' '}Это навсегда.`)) net.send({ t: 'drink', id: p.id }); };
+  if (meInfo) {
+    const maxGene = Math.max(100, ...PROPS.map((p) => meInfo!.dna[p]));
+    const muts = PROPS.filter((p) => meInfo!.mut[p]).map((p) => `<div>🧬 <b>${MUTATION_NAMES[p]} ${meInfo!.mut[p]}</b> — ${MUTATION_DESC[p][Math.min(2, meInfo!.mut[p]! - 1)]}</div>`).join('') || '<div class="muted">Мутаций нет — выпей Зелье</div>';
+    $('myrat').innerHTML = `<div><b>${esc(meInfo.name)}</b> <span class="muted">· Вылазок: ${meInfo.raids} · вынесено: ${meInfo.banked} · карманов: ${RULES.pockets + meInfo.mods.pockets + (nora?.builds.pockets?.level ?? 0)}</span></div>${muts}<div class="dna" style="margin-top:6px">${PROPS.map((p) => `<span>${p}</span><i><b style="width:${(meInfo!.dna[p] / maxGene) * 100}%"></b></i><span class="muted">${meInfo!.dna[p]}</span>`).join('')}</div>`;
+  }
+  $('builds').innerHTML = Object.entries(nora.builds).map(([k, b]) => `<div class="build"><b>${b.name}</b> ${b.level}/${b.max} <span class="muted">— ${b.desc}</span>${b.cost ? `<div class="row"><span class="muted" style="font-size:12px">цена: ${Object.entries(b.cost).filter(([, n]) => n).map(([t, n]) => `${{ food: 'Еда', trash: 'Мусор', secr: 'Выделения', organ: 'Органы' }[t]} ×${n}`).join(', ')}</span><button class="small" data-build="${k}">Построить</button></div>` : '<span class="muted"> · максимум</span>'}</div>`).join('');
+  for (const el of $('builds').querySelectorAll<HTMLElement>('[data-build]')) el.onclick = () => net.send({ t: 'build', what: el.dataset.build });
+  $('log').textContent = nora.log.join('\n');
+  $('pourInfo').textContent = lobby?.pour.length ? `На карту выльем: ${lobby.pour.map((id) => '#' + id).join(', ')}` : '';
+}
+$('brewBtn').onclick = () => { if (cauldron.length >= 2) { net.send({ t: 'brew', kinds: cauldron }); cauldron = []; } };
 net.on('snapshot', (s) => {
   snaps.push(s); while (snaps.length > 30) snaps.shift();
   const rs = s.rats.find((r) => r.id === myId);
   if (rs && level) {
-    if (!me) { me = makeRat(rs); }
+    if (!me) { me = makeRat(rs); me.mods = ratModsById[myId] ?? BASE_MODS; me.maxHp = rs.mh; }
     lastServerMe = rs; reconcile(rs);
   }
 });
@@ -104,7 +149,7 @@ net.on('events', (evs) => { for (const e of evs) onEvent(e); });
 
 function esc(s: string) { return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!)); }
 function makeRat(s: RatSnap): Rat {
-  const r: Rat = { id: s.id, name: s.n, x: s.x, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: 100, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, water: false, act: 0, exitProg: 0, banked: [], hits: 0 };
+  const r: Rat = { id: s.id, name: s.n, x: s.x, y: s.y, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: 100, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, water: false, act: 0, exitProg: 0, banked: [], hits: 0, mods: BASE_MODS, maxHp: 100 };
   applyRatSnap(r, s); return r;
 }
 function solidOthers() {
@@ -116,15 +161,16 @@ function reconcile(rs: RatSnap) {
   applyRatSnap(me, rs);
   pendingInputs = pendingInputs.filter((i) => i.seq > rs.s);
   const others = solidOthers();
-  for (const i of pendingInputs) stepRat(level, me, i, others);
+  for (const i of pendingInputs) stepRat(level, me, i, others, raidModsCur.slippery, raidModsCur.sticky);
 }
 
 // ---------- итоги ----------
+import { ITEM_PROPS as ITEM_PROPS_LOCAL } from '@krysy/sim';
 function showResults(m: ResultsMsg) {
   phase = 'results'; setControls(false);
   const rows = m.rows.map((r) => `<tr><td>${r.exited ? '🏁' : '💀'} ${esc(r.name)}</td><td>${r.exited ? 'вынесла' : 'не вернулась'}</td><td>${r.loot.map((k) => `<img src="${itemIcon(k)}" title="${KINDS[k]?.name ?? k}" style="width:16px;height:16px;vertical-align:middle"/>`).join(' ') || '—'}</td></tr>`).join('');
   $('resultsBody').innerHTML = `<div class="muted">${MAPS[m.map]?.name ?? m.map} · Переполох ${m.panic} %</div><table><tr><th>Крыса</th><th></th><th>Добыча</th></tr>${rows}</table>`;
-  $('resultsNote').textContent = 'Нора и Алхимия — следующий слой; пока добыча только в таблице.';
+  $('resultsNote').textContent = 'Добыча вынесших уже на Складе Стаи — вари Зелья в Норе.';
   $('screenResults').classList.add('open');
 }
 
@@ -248,7 +294,7 @@ app.ticker.add(() => {
     if (me) {
       const input: Input = { seq: ++seq, ...s };
       prevX = me.x; prevY = me.y;
-      stepRat(level, me, input, solidOthers()); pendingInputs.push(input);
+      stepRat(level, me, input, solidOthers(), raidModsCur.slippery, raidModsCur.sticky); pendingInputs.push(input);
       net.sendInput(input, lastServerMe?.s ?? 0);
     }
   }
@@ -339,14 +385,14 @@ app.ticker.add(() => {
       const meS = s1.rats.find((r) => r.id === myId);
       $('panicFill').style.width = s1.panic + '%';
       if (meS) {
-        $('hpFill').style.width = meS.hp + '%';
+        $('hpFill').style.width = Math.round((meS.hp / (meS.mh || 100)) * 100) + '%';
         $('hpFill').style.background = meS.hp > 50 ? '#6fb06f' : meS.hp > 25 ? '#d0a040' : '#d04040';
         const key = meS.pk.join(',');
         if (key !== lastPocketsKey) {
           lastPocketsKey = key;
           let cells = ''; let used = 0;
           for (const k of meS.pk) { const kd = KINDS[k]; used += kd.size; cells += `<span class="full t-${kd.type}" style="height:${26 * kd.size + 2 * (kd.size - 1)}px"><img src="${itemIcon(k, 3)}" alt="${kd.name}"/><i>${kd.name}</i>${kd.size > 1 ? `<em>×${kd.size}</em>` : ''}</span>`; }
-          for (let i = used; i < RULES.pockets; i++) cells += '<span><em>пусто</em></span>';
+          for (let i = used; i < (meS.pc ?? RULES.pockets); i++) cells += '<span><em>пусто</em></span>';
           $('pockets').innerHTML = cells;
         }
         $('info').textContent = `${meS.dn ? `лежишь ${meS.dl.toFixed(0)} с · ` : ''}${meS.ex ? 'вынесла · ' : ''}${meS.dd ? 'погибла · ' : ''}ping ${net.rtt} · ${Math.round(app.ticker.FPS)} fps`;

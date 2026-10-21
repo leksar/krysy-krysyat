@@ -19,11 +19,29 @@
     input { font: inherit; font-size: 16px; padding: 6px 10px; border-radius: 8px; border: 1px solid #777; background: #1c1814; color: #e8d9c0; text-align: center; }
     .screen { position: fixed; inset: 0; display: none; place-items: center; background: rgba(14,12,10,.96); z-index: 20; overflow: auto; }
     .screen.open { display: grid; }
-    .card { width: min(560px, 94vw); padding: 16px 18px; background: #16130f; border: 1px solid #3a322b; border-radius: 12px; line-height: 1.5; }
+    .card { width: min(820px, 96vw); max-height: 94vh; overflow: auto; padding: 14px 16px; background: #16130f; border: 1px solid #3a322b; border-radius: 12px; line-height: 1.45; }
+    .cols { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+    .col { flex: 1 1 300px; min-width: 260px; }
+    .col h3 { margin: 10px 0 4px; font-size: 14px; opacity: .8; text-transform: uppercase; letter-spacing: .04em; }
+    .chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; margin: 2px; border: 1px solid #3a322b; border-radius: 8px; font-size: 13px; cursor: pointer; background: rgba(0,0,0,.25); }
+    .chip img { width: 16px; height: 16px; image-rendering: pixelated; }
+    .chip.food { border-color: #d8b860; } .chip.trash { border-color: #a0a0a8; } .chip.secr { border-color: #80c8e8; } .chip.organ { border-color: #e05070; }
+    .chip b { opacity: .7; }
+    .slot { display: inline-grid; place-items: center; width: 34px; height: 34px; margin: 2px; border: 1px dashed #5a4a3a; border-radius: 8px; cursor: pointer; }
+    .slot img { width: 20px; height: 20px; image-rendering: pixelated; }
+    .potion { border: 1px solid #3a322b; border-radius: 8px; padding: 6px 8px; margin: 4px 0; font-size: 13px; }
+    .potion.pour { border-color: #e8d9c0; background: #241f1a; }
+    .props span { display: inline-block; padding: 1px 6px; margin: 1px; border-radius: 6px; background: #2a241f; font-size: 12px; }
+    .dna { display: grid; grid-template-columns: 70px 1fr 28px; gap: 2px 6px; align-items: center; font-size: 12px; }
+    .dna i { display: block; height: 8px; background: #2a241f; border-radius: 4px; overflow: hidden; }
+    .dna i b { display: block; height: 100%; background: linear-gradient(90deg, #8fb0c8, #e8d9c0); }
+    .build { border: 1px solid #3a322b; border-radius: 8px; padding: 6px 8px; margin: 4px 0; font-size: 13px; }
+    .log { font-size: 11px; opacity: .6; white-space: pre-line; }
+    button.small { font-size: 12px; padding: 4px 8px; }
     .card h1 { margin: 0 0 8px; font-size: 22px; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
     .muted { opacity: .6; font-size: 13px; }
-    .map { padding: 8px 10px; border: 1px solid #3a322b; border-radius: 8px; cursor: pointer; }
+    .map { padding: 6px 10px; border: 1px solid #3a322b; border-radius: 8px; cursor: pointer; flex: 1 1 200px; font-size: 13px; }
     .map.sel { border-color: #e8d9c0; background: #241f1a; }
     .map.locked { cursor: default; opacity: .7; }
     .room { display: inline-block; margin: 3px 6px 3px 0; padding: 5px 9px; border: 1px solid #3a322b; border-radius: 8px; cursor: pointer; opacity: 1; color: #e8d9c0; }
@@ -65,6 +83,7 @@
       <h1>🐀 Крысы крысят</h1>
       <div id="joinBox">
         <div class="row"><input id="name" placeholder="имя крысы" maxlength="12" /><input id="code" placeholder="код комнаты" maxlength="6" style="width:120px;text-transform:uppercase" /></div>
+        <div class="row muted" style="font-size:12px">Крыса привязана к секретному коду в этом телефоне. <a href="#" id="showAcct" style="color:#e8d9c0">Мой код</a> · <a href="#" id="enterAcct" style="color:#e8d9c0">Ввести код с другого телефона</a></div>
         <div class="row"><button id="join" class="primary">Войти в Нору</button><span class="muted">код — любой; кто первый зашёл, тот выбирает карту</span></div>
         <div id="rooms" class="muted" style="margin-top:6px"></div>
         <div class="muted" id="iosHint" style="display:none;color:#f0c674">iPhone: открой в Safari → Поделиться → «На экран Домой» — без адресной строки и свайпов.</div>
@@ -73,7 +92,19 @@
         <div class="row">Комната <b id="codeShow"></b> · <span id="status" class="muted"></span></div>
         <div class="row" id="players"></div>
         <div class="row" id="maps"></div>
-        <div class="row"><button id="start" class="primary">В Вылазку</button><button id="leave">Выйти</button></div>
+        <div class="row"><button id="start" class="primary">В Вылазку</button><button id="leave">Выйти</button><span id="pourInfo" class="muted"></span></div>
+        <div class="cols">
+          <div class="col">
+            <h3>Склад Стаи</h3><div id="stash" class="muted">пусто — всё, что вынесете с Вылазки, ляжет сюда</div>
+            <h3>Котёл <span id="cauldronSize" class="muted"></span></h3><div id="cauldron"></div><div class="row"><button id="brewBtn" class="small">Сварить Зелье</button><span id="brewHint" class="muted" style="font-size:12px">тапни Ингредиенты на Складе, чтобы положить в Котёл</span></div>
+            <h3>Зелья</h3><div id="potions" class="muted">нет</div>
+          </div>
+          <div class="col">
+            <h3>Моя крыса</h3><div id="myrat"></div>
+            <h3>Постройки</h3><div id="builds"></div>
+            <h3>Журнал</h3><div id="log" class="log"></div>
+          </div>
+        </div>
         <div class="muted">Левая половина — джойстик · ПРЫГ · КУС · ДЕЙСТВИЕ (держать: поднять напарника, выход; тап: выбросить предмет). Укус валит Ребёнка и Пьяного; взрослого — только стаей. Водосток не пропускает Органы.<br/><b>Метка:</b> у лужи держи ДЕЙСТ. — попила; у еды на земле держи ДЕЙСТ. — пометила. Человек съест → заражён → через 30 с болеет (роняет Гной), ещё через 30 — ослаб: добивается одной крысой, уникальный Орган. Два заражённых открывают Люк.<br/><b>Клавиатура:</b> ← → или A D — бег · Пробел / W / ↑ — прыжок (держи дольше — выше) · <b>F или X — укус</b> · E или Z — действие (держать: поднять / выход; тап: выбросить).</div>
       </div>
     </div>

@@ -1,12 +1,16 @@
 // Сеть: инпуты пачкой (последние 5 неподтверждённых), снапшоты, события, лобби.
-import type { Input, Snapshot, Event } from '@krysy/sim';
+import type { Input, Snapshot, Event, RaidMods, RatMods } from '@krysy/sim';
 
-export type LobbyMsg = { code: string; phase: string; map: string; hostId: string | null; maps: { id: string; name: string; desc: string }[]; players: { id: string; name: string }[] };
+export type LobbyMsg = { code: string; phase: string; map: string; hostId: string | null; pour: number[]; maps: { id: string; name: string; desc: string }[]; players: { id: string; name: string }[] };
 export type ResultsMsg = { rows: { id: string; name: string; exited: boolean; dead: boolean; loot: string[] }[]; panic: number; map: string };
 export type Handlers = {
   welcome: (id: string) => void;
   lobby: (m: LobbyMsg) => void;
-  raid: (map: string, seed: number) => void;
+  raid: (map: string, seed: number, mods?: RaidMods, ratMods?: Record<string, RatMods>) => void;
+  nora: (m: any) => void;
+  me: (m: any) => void;
+  err: (text: string) => void;
+  drank: (family: string | null, tier: number) => void;
   results: (m: ResultsMsg) => void;
   snapshot: (s: Snapshot & { at: number }) => void;
   events: (ev: Event[]) => void;
@@ -23,10 +27,10 @@ export class Net {
   private pingTimer: number | null = null;
   on<K extends keyof Handlers>(k: K, f: Handlers[K]) { this.h[k] = f; }
 
-  connect(url: string, name: string, room: string) {
+  connect(url: string, name: string, room: string, code: string) {
     this.close();
     this.h.status?.(`подключаюсь…`);
-    const ws = new WebSocket(`${url}?name=${encodeURIComponent(name)}&room=${encodeURIComponent(room)}`);
+    const ws = new WebSocket(`${url}?name=${encodeURIComponent(name)}&room=${encodeURIComponent(room)}&code=${encodeURIComponent(code)}`);
     this.ws = ws;
     ws.onopen = () => { this.h.status?.('на связи'); this.pingTimer = window.setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000); };
     ws.onclose = (e) => { this.h.status?.(e.code === 4000 ? 'комната полна' : `отключено (${e.code})`, true); if (this.pingTimer) clearInterval(this.pingTimer); };
@@ -39,7 +43,11 @@ export class Net {
     switch (m.t) {
       case 'welcome': this.id = m.id; this.h.welcome?.(m.id); break;
       case 'lobby': this.h.lobby?.(m); break;
-      case 'raid': this.pending = []; this.h.raid?.(m.map, m.seed); break;
+      case 'raid': this.pending = []; this.h.raid?.(m.map, m.seed, m.mods, m.ratMods); break;
+      case 'nora': this.h.nora?.(m); break;
+      case 'me': this.h.me?.(m); break;
+      case 'err': this.h.err?.(m.text); break;
+      case 'drank': this.h.drank?.(m.family, m.tier); break;
       case 'results': this.h.results?.(m); break;
       case 's': this.h.snapshot?.({ ...m, at: performance.now() }); if (m.ev?.length) this.h.events?.(m.ev); break;
       case 'ev': this.h.events?.(m.ev); break;

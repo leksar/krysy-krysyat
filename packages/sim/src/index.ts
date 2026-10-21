@@ -4,7 +4,9 @@
 // Контракт: внутри шагов нет Math.random / Date.now — только world.rng.
 
 export * from './gen.js';
+export * from './alchemy.js';
 import { MAPS, generateLevel } from './gen.js';
+import { BASE_MODS, BASE_RAID, type RatMods, type RaidMods } from './alchemy.js';
 
 export const TILE = 16;
 export const TICK_HZ = 60;
@@ -77,6 +79,8 @@ export type Rat = Body & {
   inv: number;              // неуязвимость после удара, с
   water: boolean;           // попила — готова поставить Метку
   act: number;              // прогресс длительного действия (пить/метить)
+  mods: RatMods;            // Мутации × ДНК (с сервера, на всю Вылазку)
+  maxHp: number;
   exitProg: number;         // прогресс выхода
   banked: string[];         // вынесенное (после выхода)
   hits: number;
@@ -123,6 +127,7 @@ export type World = {
   map: string; level: Level; tick: number; rng: number;
   rats: Map<string, Rat>; humans: Human[]; pigeons: Pigeon[]; items: Item[]; cat: Cat | null;
   panic: number; stage: number; nextId: number; events: Event[]; over: boolean;
+  mods: RaidMods; acidT: number;
 };
 
 // ---------- RNG (xorshift32) ----------
@@ -130,17 +135,23 @@ export function rand(w: World): number { let x = w.rng | 0; x ^= x << 13; x ^= x
 const ri = (w: World, n: number) => Math.floor(rand(w) * n);
 
 // ---------- карта ----------
-export function createWorld(map: string, seed: number): World {
+export function createWorld(map: string, seed: number, mods: RaidMods = BASE_RAID): World {
   const def = MAPS[map] ?? MAPS[Object.keys(MAPS)[0]];
   const level = generateLevel(def.id, seed);
-  const w: World = { map: def.id, level, tick: 0, rng: (seed | 0) || 1, rats: new Map(), humans: [], pigeons: [], items: [], cat: null, panic: 0, stage: 0, nextId: 1, events: [], over: false };
+  const w: World = { map: def.id, level, tick: 0, rng: (seed | 0) || 1, rats: new Map(), humans: [], pigeons: [], items: [], cat: null, panic: mods.panicStart, stage: 0, nextId: 1, events: [], over: false, mods, acidT: 0 };
   for (const h of level.humans) w.humans.push(makeHuman(w, h.type, h.x, h.y));
+  // Модификаторы: дополнительные Люди/предметы на уже проверенных клетках
+  const hs = level.humans.filter((h) => h.type !== 'Z'), its = level.items;
+  for (let i = 0; i < mods.extraP && hs.length; i++) { const h = hs[ri(w, hs.length)]; w.humans.push(makeHuman(w, 'P', h.x + 8, h.y)); }
+  for (let i = 0; i < mods.extraK && hs.length; i++) { const h = hs[ri(w, hs.length)]; w.humans.push(makeHuman(w, 'K', h.x - 8, h.y)); }
+  for (let i = 0; i < mods.extraFood && its.length; i++) { const it = its[ri(w, its.length)]; spawnItem(w, ['bread', 'donut', 'gum'][ri(w, 3)], it.x + 6, it.y); }
+  for (let i = 0; i < mods.extraTrash && its.length; i++) { const it = its[ri(w, its.length)]; spawnItem(w, ['butt', 'mask', 'ketchup'][ri(w, 3)], it.x - 6, it.y); }
   // предметы: случайный вид в пределах типа
   for (const it of level.items) {
     const pool = it.kind === 'heart' ? ['heart'] : KINDS[it.kind].type === 'food' ? ['bread', 'bone', 'gum', 'donut'] : ['butt', 'ketchup', 'mask', 'battery', 'cracker'];
     spawnItem(w, pool[ri(w, pool.length)], it.x + 2, it.y + 4);
   }
-  for (let i = 0; i < Math.min(def.pigeons.V, level.perches.length); i++) spawnPigeon(w, 'V');
+  for (let i = 0; i < Math.min(def.pigeons.V + mods.extraV, level.perches.length); i++) spawnPigeon(w, 'V');
   for (let i = 0; i < Math.min(def.pigeons.F, level.perches.length); i++) spawnPigeon(w, 'F');
   return w;
 }
@@ -156,10 +167,10 @@ function spawnPigeon(w: World, type: PigeonType): Pigeon {
   w.pigeons.push(pg); return pg;
 }
 
-export function addRat(w: World, id: string, name: string): Rat {
+export function addRat(w: World, id: string, name: string, mods: RatMods = BASE_MODS): Rat {
   const n = w.rats.size, sp = w.level.spawns;
   const s = sp[n % sp.length];
-  const r: Rat = { id, name, x: s.x + 1 + Math.floor(n / sp.length) * 18, y: s.y - Math.floor(n / sp.length) * 12, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: RULES.ratHp, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, water: false, act: 0, exitProg: 0, banked: [], hits: 0 };
+  const r: Rat = { id, name, x: s.x + 1 + Math.floor(n / sp.length) * 18, y: s.y - Math.floor(n / sp.length) * 12, w: RAT_W, h: RAT_H, vx: 0, vy: 0, grounded: false, facing: 1, coyoteLeft: 0, bufferLeft: 0, biteLeft: 0, biteCd: 0, lastSeq: 0, hp: Math.round(RULES.ratHp * mods.maxHp), maxHp: Math.round(RULES.ratHp * mods.maxHp), mods, down: false, downLeft: 0, dead: false, exited: false, pockets: [], revive: 0, inv: 0, water: false, act: 0, exitProg: 0, banked: [], hits: 0 };
   w.rats.set(id, r); return r;
 }
 
@@ -217,23 +228,30 @@ function collideRats(l: Level, r: Body, prevY: number, others: Body[]): void {
   }
 }
 
-export function stepRat(l: Level, r: Rat, input: Input, others: Body[] = []): void {
+export function stepRat(l: Level, r: Rat, input: Input, others: Body[] = [], slippery = 0, sticky = 0): void {
   const p = PHYS, dt = TICK;
   r.lastSeq = input.seq;
   const prevY = r.y;
+  const m = r.mods ?? BASE_MODS;
+  const speed = p.speed * m.speed * (1 - 0.1 * sticky), jumpVel = p.jumpVel * m.jump;
+  const grip = slippery ? 1 / (1 + slippery) : 1;
   if (r.down || r.dead || r.exited) { // лежит: не двигается, только падает
     r.vx = approach(r.vx, 0, p.accel * dt);
     r.vy = Math.min(r.vy + p.fallGravity * dt, p.maxFall);
     moveBody(l, r, dt); collideRats(l, r, prevY, others); r.biteLeft = 0; return;
   }
-  const target = input.moveX * p.speed;
-  r.vx = approach(r.vx, target, (r.grounded ? p.accel : p.airAccel) * dt);
+  const target = input.moveX * speed;
+  r.vx = approach(r.vx, target, (r.grounded ? p.accel * grip : p.airAccel) * dt);
+  // Липучка: у стены в воздухе — скольжение (Ступень ≥2) и прыжок от стены
+  const atWall = !r.grounded && (collides(l, r.x + 1, r.y, r.w, r.h) || collides(l, r.x - 1, r.y, r.w, r.h));
+  if (atWall && m.wallJump >= 2 && r.vy > 40) r.vy = 40;
+  if (atWall && m.wallJump >= 1 && input.jump) { const dir = collides(l, r.x + 1, r.y, r.w, r.h) ? -1 : 1; r.vy = -jumpVel * 0.9; r.vx = dir * speed; r.facing = dir as 1 | -1; r.bufferLeft = 0; }
   if (input.moveX > 0.2) r.facing = 1; else if (input.moveX < -0.2) r.facing = -1;
   r.coyoteLeft = r.grounded ? p.coyote : Math.max(0, r.coyoteLeft - dt);
   r.bufferLeft = input.jump ? p.buffer : Math.max(0, r.bufferLeft - dt);
   r.biteLeft = Math.max(0, r.biteLeft - dt);
   r.biteCd = Math.max(0, r.biteCd - dt);
-  if (r.bufferLeft > 0 && (r.grounded || r.coyoteLeft > 0)) { r.vy = -p.jumpVel; r.grounded = false; r.coyoteLeft = 0; r.bufferLeft = 0; }
+  if (r.bufferLeft > 0 && (r.grounded || r.coyoteLeft > 0)) { r.vy = -jumpVel; r.grounded = false; r.coyoteLeft = 0; r.bufferLeft = 0; }
   let g = p.gravity;
   if (r.vy > 0) g = p.fallGravity; else if (!input.jumpHeld) g = p.cutGravity;
   r.vy = Math.min(r.vy + g * dt, p.maxFall);
@@ -243,12 +261,18 @@ export function stepRat(l: Level, r: Rat, input: Input, others: Body[] = []): vo
 }
 
 export function pocketsUsed(r: Rat): number { return r.pockets.reduce((s, k) => s + KINDS[k].size, 0); }
+export function pocketsCap(r: Rat): number { return RULES.pockets + (r.mods?.pockets ?? 0); }
 export function biteBox(r: Rat) { return { x: r.facing > 0 ? r.x + r.w : r.x - PHYS.biteRange, y: r.y - 4, w: PHYS.biteRange, h: r.h + 8 }; }
 
 // ---------- шаг мира (только сервер) ----------
 export function stepWorld(w: World, inputs: Map<string, Input>): void {
   const l = w.level, dt = TICK; w.tick++; w.events.length = 0;
   const alive = [...w.rats.values()].filter((r) => !r.dead && !r.exited);
+  const M = w.mods;
+  // Кислотный дождь: раз в 3 с жжёт стоящих на земле
+  if (M.acid) { w.acidT += dt; if (w.acidT >= 3) { w.acidT = 0; for (const r of alive) if (r.grounded && !r.down) damageRat(w, r, 4 * M.acid, alive); } }
+  // регенерация (Живучка)
+  for (const r of alive) if (r.mods.regen && r.grounded && !r.down && r.hp < r.maxHp) r.hp = Math.min(r.maxHp, r.hp + r.mods.regen * dt);
 
   // --- укусы крыс по всему живому ---
   for (const a of alive) {
@@ -256,6 +280,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     const box = biteBox(a);
     for (const b of alive) if (b !== a && !b.down && overlap(b, box)) { b.vx = a.facing * PHYS.biteKnockX; b.vy = -PHYS.biteKnockY; b.grounded = false; b.hits++; }
     for (const h of w.humans) if (overlap(h, box)) biteHuman(w, h, a);
+    if (a.mods.scare) for (const h of w.humans) if (h.state === 'walk' && dist(h, a) < a.mods.scare * TILE) { h.state = 'panic'; h.timer = 3; ev(w, 'panic', h.x, h.y); }
     for (const pg of w.pigeons) if (pg.hp > 0 && Math.abs(pg.x - (box.x + box.w / 2)) < 12 && Math.abs(pg.y - (box.y + box.h / 2)) < 12) bitePigeon(w, pg, a);
     if (w.cat && w.cat.alive && overlap(w.cat, box)) { w.cat.vx = a.facing * 200; w.cat.hp -= PHYS.biteDmg; ev(w, 'hit', w.cat.x, w.cat.y); }
   }
@@ -269,9 +294,9 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     // Заражение: стадии по RULES.infStage с; Болеет — медленнее и роняет Гной; контакт заражает других
     if (h.inf > 0) {
       h.infT += dt;
-      if (h.inf < 3 && h.infT >= RULES.infStage) { h.inf++; h.infT = 0; ev(w, h.inf === 2 ? 'sick' : 'weak', h.x, h.y, HUMAN[h.type].name); }
+      if (h.inf < 3 && h.infT >= RULES.infStage * M.stageMul) { h.inf++; h.infT = 0; ev(w, h.inf === 2 ? 'sick' : 'weak', h.x, h.y, HUMAN[h.type].name); }
       if (h.inf >= 2) { h.pusT += dt; if (h.pusT >= RULES.pusEvery) { h.pusT = 0; dropFrom(w, h, [h.type === 'K' ? 'tear' : 'pus']); } }
-      for (const o of w.humans) if (o !== h && o.inf === 0 && o.hp > 0 && overlap(h, o, 2) && rand(w) < RULES.contagion * dt) infect(w, o);
+      for (const o of w.humans) if (o !== h && o.inf === 0 && o.hp > 0 && overlap(h, o, 2) && rand(w) < RULES.contagion * M.contagionMul * dt) infect(w, o);
     }
     if (h.stun > 0) { h.vx = 0; }
     else if (h.state === 'eat') {
@@ -310,7 +335,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
           break;
         }
       }
-      if (near && Math.abs(near.y + near.h - (h.y + h.h)) < 40 && Math.abs(near.x - h.x) < (h.type === 'D' ? 8 : 5) * TILE) {
+      if (near && Math.abs(near.y + near.h - (h.y + h.h)) < 40 && Math.abs(near.x - h.x) < (h.type === 'D' ? 8 : 5) * TILE * M.noticeMul) {
         if (h.type === 'D') { h.state = 'chase'; h.timer = 6; if (!h.dropped) { h.dropped = true; dropFrom(w, h, ['sock']); } }
         else {
           h.state = 'panic'; h.timer = h.type === 'K' ? 4 : 3;
@@ -324,6 +349,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
       if (h.type === 'K' && rand(w) < 0.004) { h.facing = -h.facing as 1 | -1; h.vx = h.facing * d.speed; }
     }
     if (h.inf >= 2) h.vx *= h.inf === 3 ? 0.4 : 0.6;
+    h.vx *= M.humanSpeedMul;
     h.vy = Math.min(h.vy + PHYS.fallGravity * dt, PHYS.maxFall);
     const blocked = moveBody(l, h, dt);
     if (blocked && h.state === 'walk') { h.facing = -h.facing as 1 | -1; h.vx = h.facing * d.speed; }
@@ -336,8 +362,8 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     pg.timer = Math.max(0, pg.timer - dt);
     const speed = pg.type === 'V' ? 150 : 120;
     if (pg.state === 'perch') {
-      if (pg.timer === 0) {
-        const victim = pg.type === 'V' ? pickRat(w, alive.filter((r) => !r.down && r.pockets.length >= 2), pg, 14 * TILE) : pickRat(w, alive.filter((r) => !r.down), pg, 8 * TILE);
+      if (pg.timer === 0 && !M.pigeonsGrounded) {
+        const victim = pg.type === 'V' ? pickRat(w, alive.filter((r) => !r.down && r.pockets.length >= 2 && r.mods.stink < 1), pg, 14 * TILE) : pickRat(w, alive.filter((r) => !r.down && r.mods.stink < 2), pg, 8 * TILE);
         if (victim) { pg.state = pg.type === 'V' ? 'dive' : 'attack'; pg.target = victim.id; pg.timer = 4; }
         else pg.timer = 4 + rand(w) * 6;
       }
@@ -384,7 +410,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
       if (it.id < 0) continue;
       const k = KINDS[it.kind];
       if (it.marked) continue; // Меченая еда — приманка, не подбираем
-      if (overlap(r, { x: it.x, y: it.y, w: 8, h: 8 }, 2) && pocketsUsed(r) + k.size <= RULES.pockets) { r.pockets.push(it.kind); it.id = -1; ev(w, 'pick', it.x, it.y, k.icon); }
+      if (overlap(r, { x: it.x, y: it.y, w: 8, h: 8 }, 2) && pocketsUsed(r) + k.size <= pocketsCap(r)) { r.pockets.push(it.kind); it.id = -1; ev(w, 'pick', it.x, it.y, k.icon); }
     }
   }
   w.items = w.items.filter((it) => it.id >= 0);
@@ -429,7 +455,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
   }
 
   // --- Переполох и пороги ---
-  w.panic = Math.min(100, w.panic + RULES.panicPerSec * dt);
+  w.panic = Math.min(100, w.panic + RULES.panicPerSec * M.panicMul * dt);
   const infected = w.humans.filter((h) => h.inf > 0).length;
   for (const e of l.exits) if (e.type === '2' && !e.open && (infected >= RULES.lukInfected || w.panic >= RULES.lukOpenPanic)) { e.open = true; ev(w, 'luk', e.x, e.y); }
   if (w.stage < 1 && w.panic >= RULES.thresholds.pigeons) { w.stage = 1; spawnPigeon(w, 'V'); spawnPigeon(w, 'F'); ev(w, 'stage', 0, 0, 'Голуби слетаются'); }
@@ -467,12 +493,13 @@ function damageRat(w: World, r: Rat, dmg: number, alive: Rat[]) {
   if (r.hp <= 0) { r.hp = 0; r.down = true; r.downLeft = RULES.downTime; r.revive = 0; ev(w, 'down', r.x, r.y, r.name); }
 }
 function windup(h: Human, kind: 'stomp' | 'swing', after: HumanState) { h.state = 'windup'; h.wind = kind; h.after = after; h.timer = PHYS.windup; h.cd = kind === 'stomp' ? 1.2 : 1.5; }
-function stomp(w: World, h: Human, alive: Rat[]) { for (const r of alive) if (Math.abs(r.x - h.x) < 18 && Math.abs(r.y + r.h - (h.y + h.h)) < 12) { damageRat(w, r, PHYS.stompDmg, alive); r.vx = (r.x < h.x ? -1 : 1) * 140; r.vy = -100; } ev(w, 'stomp', h.x, h.y); }
+function stomp(w: World, h: Human, alive: Rat[]) { for (const r of alive) if (Math.abs(r.x - h.x) < 18 && Math.abs(r.y + r.h - (h.y + h.h)) < 12) { damageRat(w, r, r.mods.stompHalf ? PHYS.stompDmg / 2 : PHYS.stompDmg, alive); r.vx = (r.x < h.x ? -1 : 1) * 140; r.vy = -100; } ev(w, 'stomp', h.x, h.y); }
 function swing(w: World, h: Human, alive: Rat[]) { for (const r of alive) if (Math.abs(r.x + r.w / 2 - (h.x + h.w / 2)) < 28 && Math.abs(r.y - h.y) < 32) { damageRat(w, r, PHYS.swingDmg, alive); r.vx = h.facing * 180; r.vy = -120; } ev(w, 'swing', h.x, h.y); }
 function biteHuman(w: World, h: Human, a: Rat) {
   if (!h.biters.some((b) => b.id === a.id)) h.biters.push({ id: a.id, at: w.tick });
   const pack = h.biters.length >= 2 || h.type === 'K' || h.type === 'Z' || h.inf === 3;
-  const dmg = pack ? PHYS.biteDmg : PHYS.biteDmg * PHYS.soloBite;
+  const dmg = (pack ? PHYS.biteDmg : PHYS.biteDmg * PHYS.soloBite) * a.mods.biteDmg * w.mods.biteMul;
+  if (a.mods.infect && h.inf === 0 && rand(w) < a.mods.infect) infect(w, h);
   h.hp -= dmg; h.stun = PHYS.humanStun; h.vx = a.facing * 40; if (h.state === 'windup') { h.state = h.after; h.wind = null; }
   ev(w, 'hit', h.x, h.y, String(Math.round(dmg)), pack ? '' : 'weak');
   if (h.type === 'Z') { if (rand(w) < 0.3) dropFrom(w, h, ['drool']); }
@@ -486,7 +513,7 @@ function biteHuman(w: World, h: Human, a: Rat) {
 }
 function infect(w: World, h: Human) { h.inf = 1; h.infT = 0; h.pusT = 0; ev(w, 'infect', h.x, h.y, HUMAN[h.type].name); }
 function bitePigeon(w: World, pg: Pigeon, a: Rat) {
-  pg.hp -= PHYS.biteDmg; ev(w, 'hit', pg.x, pg.y, String(PHYS.biteDmg));
+  pg.hp -= PHYS.biteDmg * a.mods.biteDmg; ev(w, 'hit', pg.x, pg.y, String(PHYS.biteDmg));
   if (pg.carry) { const it = spawnItem(w, pg.carry, pg.x, pg.y); it.vy = -40; pg.carry = null; }
   if (pg.hp <= 0) { spawnItem(w, 'feather', pg.x, pg.y); if (rand(w) < 0.25) spawnItem(w, 'carcass', pg.x + 6, pg.y); ev(w, 'pigeondead', pg.x, pg.y); }
   else { pg.state = 'flee'; pg.tx = clampX(w, pg.x + (a.facing) * 8 * TILE); pg.ty = Math.max(24, pg.y - 4 * TILE); pg.timer = 3; }
@@ -494,7 +521,7 @@ function bitePigeon(w: World, pg: Pigeon, a: Rat) {
 function spill(w: World, r: Rat) { let i = 0; for (const k of r.pockets) { const it = spawnItem(w, k, r.x + (i++ - 1) * 10, r.y - 4); it.vy = -80 - i * 10; } r.pockets = []; }
 
 // ---------- снапшоты ----------
-export type RatSnap = { id: string; n: string; x: number; y: number; vx: number; vy: number; f: 1 | -1; g: 0 | 1; b: number; cd: number; cl: number; bl: number; s: number; hp: number; dn: 0 | 1; dl: number; dd: 0 | 1; ex: 0 | 1; pk: string[]; rv: number; ep: number; bk: string[]; wt: 0 | 1; ac: number };
+export type RatSnap = { id: string; n: string; x: number; y: number; vx: number; vy: number; f: 1 | -1; g: 0 | 1; b: number; cd: number; cl: number; bl: number; s: number; hp: number; dn: 0 | 1; dl: number; dd: 0 | 1; ex: 0 | 1; pk: string[]; rv: number; ep: number; bk: string[]; wt: 0 | 1; ac: number; pc: number; mh: number };
 export type Snapshot = {
   tick: number; panic: number; rats: RatSnap[];
   hu: [number, HumanType, number, number, 1 | -1, HumanState, number, number][];
@@ -504,7 +531,7 @@ export type Snapshot = {
   cat: [number, number, number, 0 | 1] | null;
 };
 export function snapRat(r: Rat): RatSnap {
-  return { id: r.id, n: r.name, x: +r.x.toFixed(2), y: +r.y.toFixed(2), vx: +r.vx.toFixed(1), vy: +r.vy.toFixed(1), f: r.facing, g: r.grounded ? 1 : 0, b: +r.biteLeft.toFixed(3), cd: +r.biteCd.toFixed(3), cl: +r.coyoteLeft.toFixed(3), bl: +r.bufferLeft.toFixed(3), s: r.lastSeq, hp: Math.round(r.hp), dn: r.down ? 1 : 0, dl: +r.downLeft.toFixed(1), dd: r.dead ? 1 : 0, ex: r.exited ? 1 : 0, pk: r.pockets, rv: +r.revive.toFixed(2), ep: +r.exitProg.toFixed(2), bk: r.banked, wt: r.water ? 1 : 0, ac: +r.act.toFixed(2) };
+  return { id: r.id, n: r.name, x: +r.x.toFixed(2), y: +r.y.toFixed(2), vx: +r.vx.toFixed(1), vy: +r.vy.toFixed(1), f: r.facing, g: r.grounded ? 1 : 0, b: +r.biteLeft.toFixed(3), cd: +r.biteCd.toFixed(3), cl: +r.coyoteLeft.toFixed(3), bl: +r.bufferLeft.toFixed(3), s: r.lastSeq, hp: Math.round(r.hp), dn: r.down ? 1 : 0, dl: +r.downLeft.toFixed(1), dd: r.dead ? 1 : 0, ex: r.exited ? 1 : 0, pk: r.pockets, rv: +r.revive.toFixed(2), ep: +r.exitProg.toFixed(2), bk: r.banked, wt: r.water ? 1 : 0, ac: +r.act.toFixed(2), pc: pocketsCap(r), mh: r.maxHp };
 }
 export function applyRatSnap(r: Rat, s: RatSnap): void {
   r.x = s.x; r.y = s.y; r.vx = s.vx; r.vy = s.vy; r.facing = s.f; r.grounded = s.g === 1;

@@ -10,7 +10,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: "2567"
-      DB_PATH: /data/krysy.sqlite
+      DB_PATH: /data/krysy.json
       ALLOWED_ORIGIN: https://leksar.github.io
     volumes:
       - data:/data
