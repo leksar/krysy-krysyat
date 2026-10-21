@@ -3,7 +3,7 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Tiling
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
 import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, stepRat, applyRatSnap, PHYS, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
 import { Touch } from './input';
-import { Net, type LobbyMsg, type ResultsMsg } from './net';
+import { Net, type LobbyMsg, type ResultsMsg, type PubProfile } from './net';
 import { Audio, falloff } from './audio';
 const audio = new Audio();
 
@@ -84,10 +84,12 @@ $('abort').onclick = () => { if (confirm('Прервать Вылазку для
 
 // ---------- Нора как уровень ----------
 let openStation: StationId | null = null;
+let ratSheetId: string | null = null;
+let profiles: Record<string, PubProfile> = {};
 function enterNora() {
   phase = 'lobby'; audio.setMusic('nora');
   level = noraLevel();
-  me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0; raidModsCur = BASE_RAID;
+  me = null; pendingInputs = []; lastServerMe = null; snaps = []; raidModsCur = BASE_RAID; // seq НЕ сбрасываем: старые пакеты в полёте иначе блокируют ввод
   buildLevel(level, 'nora');
   buildStations();
   $('screenLobby').classList.remove('open'); $('screenResults').classList.remove('open');
@@ -160,7 +162,40 @@ function stationHere(): StationId | null { return me && phase === 'lobby' ? stat
 
 // ---------- шторка станции ----------
 function openSheet(id: StationId) { audio.play('ui'); openStation = id; cauldron = []; $('sheet').classList.add('open'); renderSheet(); }
-function closeSheet() { openStation = null; $('sheet').classList.remove('open'); }
+function closeSheet() { openStation = null; ratSheetId = null; $('sheet').classList.remove('open'); }
+// ---------- карточка крысы (тап по крысе) ----------
+type Look = { fat: number; acid: number; alive: number; sweet: number; infect: number; loud: number; sticky: number; rot: number };
+function lookOf(id: string): Look { const m = profiles[id]?.mut ?? {}; return { fat: m['Жирное'] ?? 0, acid: m['Едкое'] ?? 0, alive: m['Живое'] ?? 0, sweet: m['Сладкое'] ?? 0, infect: m['Заразное'] ?? 0, loud: m['Шумное'] ?? 0, sticky: m['Липкое'] ?? 0, rot: m['Гнилое'] ?? 0 }; }
+function openRatSheet(id: string) { audio.play('ui'); openStation = null; ratSheetId = id; $('sheet').classList.add('open'); renderRatSheet(id); }
+function renderRatSheet(id: string) {
+  const pr = profiles[id]; const body = $('sheetBody');
+  if (!pr) { body.innerHTML = '<h2>Крыса</h2><div class="muted">нет данных</div>'; return; }
+  const snap = snaps[snaps.length - 1]?.rats.find((r) => r.id === id);
+  const mine = id === myId;
+  const maxGene = Math.max(100, ...PROPS.map((p) => pr.dna[p] ?? 0));
+  const muts = PROPS.filter((p) => pr.mut[p]).map((p) => `<div>🧬 <b>${MUTATION_NAMES[p]} ${pr.mut[p]}</b> <span class="muted">— ${MUTATION_DESC[p][Math.min(2, pr.mut[p]! - 1)]}</span></div>`).join('') || '<div class="muted">Мутаций нет</div>';
+  const dom = [...PROPS].sort((a, b) => (pr.dna[b] ?? 0) - (pr.dna[a] ?? 0)).slice(0, 2);
+  body.innerHTML = `<h2>${mine ? '🐀 Ты: ' : '🐀 '}${esc(pr.name)}</h2>
+    <div class="muted">Вылазок: ${pr.raids} · вынесено: ${pr.banked} · карманов: ${RULES.pockets + pr.pockets + (pr.mut['Жирное'] ?? 0)}${snap ? ` · HP ${snap.hp}/${snap.mh}${snap.dn ? ' · лежит' : ''}${snap.pk.length ? ` · несёт: ${snap.pk.map((k) => KINDS[k]?.name).join(', ')}` : ''}` : ''}</div>
+    <div style="margin:6px 0">${muts}</div>
+    <div class="muted" style="font-size:12px">Порода по ДНК: <b>${dom.join(' + ')}</b> — такие Мутации у неё сильнее</div>
+    <div class="dna" style="margin-top:4px">${PROPS.map((p) => `<span>${p}</span><i><b style="width:${((pr.dna[p] ?? 0) / maxGene) * 100}%"></b></i><span class="muted">${pr.dna[p] ?? 0}</span>`).join('')}</div>`;
+}
+/** Тап по крысе: короткое касание без сдвига над крысой открывает карточку (и в Норе, и на Вылазке) */
+let tapStart: { x: number; y: number; t: number; id: number } | null = null;
+document.addEventListener('pointerdown', (e) => { const t = e.target as HTMLElement; if (t.id === 'game' || t === document.body) tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; });
+document.addEventListener('pointerup', (e) => {
+  if (!tapStart || e.pointerId !== tapStart.id) return;
+  const dx = e.clientX - tapStart.x, dy = e.clientY - tapStart.y, dt = performance.now() - tapStart.t; tapStart = null;
+  if (Math.hypot(dx, dy) > 8 || dt > 350 || !level || (phase !== 'raid' && phase !== 'lobby')) return;
+  const wx = (e.clientX - stage.x) / stage.scale.x, wy = (e.clientY - stage.y) / stage.scale.y;
+  const cands: { id: string; x: number; y: number }[] = [];
+  if (me) cands.push({ id: myId, x: me.x, y: me.y });
+  for (const r of snaps[snaps.length - 1]?.rats ?? []) if (r.id !== myId && !r.ex) cands.push({ id: r.id, x: r.x, y: r.y });
+  let best: string | null = null, bd = 18;
+  for (const c of cands) { const d = Math.hypot(c.x + RAT_W / 2 - wx, c.y + RAT_H / 2 - wy); if (d < bd) { bd = d; best = c.id; } }
+  if (best) openRatSheet(best);
+});
 $('sheetClose').onclick = closeSheet;
 $('mute').textContent = audio.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { audio.unlock(); $('mute').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
@@ -231,7 +266,8 @@ function raidPreview() { if (!nora || !lobby) return ''; const ps = nora.potions
 net.on('status', (t, closed) => { const st = document.getElementById('status'); if (st) st.textContent = t; if (closed) { showJoin(); $('joinBox').insertAdjacentHTML('beforeend', `<div class="muted">${t}</div>`); } });
 net.on('welcome', (id) => { myId = id; });
 net.on('lobby', (m) => {
-  lobby = m; selectedMap = m.map;
+  lobby = m; selectedMap = m.map; profiles = m.profiles ?? {};
+  if (ratSheetId) renderRatSheet(ratSheetId);
   if (m.phase === 'lobby' && phase !== 'lobby') enterNora();
   $('roomInfo').innerHTML = `Комната <b>${m.code}</b> · ${m.players.map((p) => `${p.id === m.hostId ? '👑' : '🐀'} ${esc(p.name)}`).join(' · ')} · <span id="status" class="muted"></span>`;
   updateStations(); if (openStation) renderSheet();
@@ -239,7 +275,7 @@ net.on('lobby', (m) => {
 net.on('raid', (map, seed, mods, ratMods) => {
   raidModsCur = mods ?? BASE_RAID; ratModsById = ratMods ?? {};
   level = generateLevel(map, seed);
-  me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0;
+  me = null; pendingInputs = []; lastServerMe = null; snaps = [];
   phase = 'raid'; closeSheet(); document.body.classList.remove('nora'); $('hint').textContent = ''; audio.setMusic('raid');
   buildLevel(level, map);
   $('screenLobby').classList.remove('open'); $('screenResults').classList.remove('open');
@@ -374,21 +410,36 @@ function view(key: string, t?: Texture): View {
   return v;
 }
 const COLORS = [0x8f8378, 0x6f8fa3, 0xa38f6f, 0x7fa36f, 0xa36f9a, 0x6fa39b];
+const NO_LOOK: Look = { fat: 0, acid: 0, alive: 0, sweet: 0, infect: 0, loud: 0, sticky: 0, rot: 0 };
+function mix(a: number, b: number, k: number) { k = Math.min(1, k); const ch = (x: number, s: number) => (x >> s) & 255; const r = Math.round(ch(a, 16) * (1 - k) + ch(b, 16) * k), g = Math.round(ch(a, 8) * (1 - k) + ch(b, 8) * k), bl = Math.round(ch(a, 0) * (1 - k) + ch(b, 0) * k); return (r << 16) | (g << 8) | bl; }
 const colorOf = (id: string) => COLORS[(Number(id) - 1 + 600) % COLORS.length];
 // крыса — векторная, как в прототипах (пользователю она нравится больше спрайта)
-function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolean; down: boolean; dead: boolean; vx: number; biteT?: number }, color: number, t: number) {
+function drawRat(v: View, r: { facing: 1 | -1; grounded: boolean; biting: boolean; down: boolean; dead: boolean; vx: number; biteT?: number }, color: number, t: number, look: Look = NO_LOOK) {
   const b = v.g; b.clear(); v.sp.visible = false; v.extra.visible = false;
+  // внешность от Мутаций: Гнилое темнит и зеленит шерсть, Сладкое розовит
+  if (look.rot) color = mix(color, 0x5a6a3a, 0.25 * look.rot); if (look.sweet) color = mix(color, 0xf0b0c0, 0.2 * look.sweet);
+  const f = r.facing, dark = color + 0x0d0c0c;
   if (r.dead) { b.rect(0, 6, 14, 4).fill(0x333333); return; }
-  if (r.down) { b.ellipse(7, 7, 8, 3).fill(color); b.circle(r.facing > 0 ? 13 : 1, 7, 2.5).fill(color + 0x0d0c0c); b.rect(5, 2, 1, 1).fill(0xffffff); return; }
+  if (r.down) { b.ellipse(7, 7, 8, 3).fill(color); b.circle(f > 0 ? 13 : 1, 7, 2.5).fill(dark); b.rect(5, 2, 1, 1).fill(0xffffff); return; }
   const sq = r.grounded && !r.biting ? 0 : 1;
+  const fat = Math.min(6, look.fat) * 0.6;            // Жирная мышь: шире и круглее, без предела
+  const legLen = look.sticky ? 1 + look.sticky : 0;    // Липучка: длинные лапы
   const wag = Math.abs(r.vx) > 10 ? Math.sin(t / 3) * 3 : Math.sin(t / 8) * 1.5;
-  b.moveTo(r.facing > 0 ? 0 : 14, 7).lineTo(r.facing > 0 ? -9 : 23, 4 + wag).stroke({ width: 1.5, color: 0xc9a58a });
-  b.roundRect(0, 1 + sq, 14, 9 - sq, 4).fill(color);
-  b.circle(r.facing > 0 ? 13 : 1, 4, 3.2).fill(color + 0x0d0c0c);
-  b.circle(r.facing > 0 ? 15 : -1, 4, 0.9).fill(0xffb0c0);
-  b.circle(r.facing > 0 ? 11 : 3, 1.5, 1.6).fill(0xd9a5a5);
-  b.circle(r.facing > 0 ? 13.5 : 0.5, 3, 0.7).fill(0x111111);
-  if (r.grounded && Math.abs(r.vx) > 10) { const ph = Math.floor(t / 5) % 2; b.rect(2 + ph * 2, 9, 2, 1).fill(color + 0x0d0c0c); b.rect(9 - ph * 2, 9, 2, 1).fill(color + 0x0d0c0c); }
+  b.moveTo(f > 0 ? 0 : 14, 7).lineTo(f > 0 ? -9 : 23, 4 + wag).stroke({ width: 1.5, color: 0xc9a58a });
+  b.roundRect(-fat / 2, 1 + sq - fat * 0.6, 14 + fat, 9 - sq + fat * 0.6, 4 + fat * 0.3).fill(color);
+  if (look.alive) { b.circle(f > 0 ? 11 : 3, 1.5 - look.alive * 0.4, 1.6 + look.alive * 0.5).fill(0xe8a0a0); b.circle(f > 0 ? 4 : 10, 5, 1.2).fill({ color: 0xff8090, alpha: 0.5 }); } // Живучка: ушастая и румяная
+  else b.circle(f > 0 ? 11 : 3, 1.5, 1.6).fill(0xd9a5a5);
+  b.circle(f > 0 ? 13 : 1, 4, 3.2 + (look.loud ? 0.6 : 0)).fill(dark);
+  b.circle(f > 0 ? 15 : -1, 4, 0.9).fill(0xffb0c0);
+  b.circle(f > 0 ? 13.5 : 0.5, 3, 0.7).fill(0x111111);
+  if (look.loud) b.ellipse(f > 0 ? 14.5 : -0.5, 5.5, 1.4, 0.9 + 0.3 * look.loud).fill(0x401010);   // Визгунья: пасть нараспашку
+  if (look.acid) { b.rect(f > 0 ? 14 : -1, 6, 1, 1 + look.acid).fill(0x9cff5a); b.rect(f > 0 ? 12 : 1, 6, 1, 1).fill(0x9cff5a); }  // Кислотная пасть: зелёная слюна
+  if (look.infect) for (let i = 0; i < look.infect + 1; i++) b.circle(3 + ((i * 5) % 9), 3 + ((i * 3) % 5), 0.9).fill(0x6fbf3a); // Чумная: пятна
+  if (look.rot) for (let i = 0; i < look.rot; i++) b.circle(7 + Math.sin(t / 7 + i * 2) * 7, -2 + Math.cos(t / 5 + i) * 2, 0.6).fill(0x222222); // Вонючка: мухи
+  if (look.sweet && Math.floor(t / 10 + 0) % 3 === 0) b.rect(2 + (t % 10), -1, 1, 1).fill(0xffffff);  // Сахарная: блёстки
+  const ly = 9 + (look.sticky ? 0 : 0);
+  if (r.grounded && Math.abs(r.vx) > 10) { const ph = Math.floor(t / 5) % 2; b.rect(2 + ph * 2, ly, 2, 1 + legLen).fill(dark); b.rect(9 - ph * 2, ly, 2, 1 + legLen).fill(dark); }
+  else if (legLen) { b.rect(2, ly, 2, 1 + legLen).fill(dark); b.rect(10, ly, 2, 1 + legLen).fill(dark); }
   if (r.biting) {
     // анимация укуса: вариант выбирается на старте укуса (v.anim), прогресс p 0→1 за время укуса
     if (!v.biteOn) { v.biteOn = true; v.anim = Math.floor(Math.random() * 3); }
@@ -476,7 +527,7 @@ app.ticker.add(() => {
   if (me) {
     const rx = prevX + (me.x - prevX) * a, ry = prevY + (me.y - prevY) * a;
     const v = view('r' + myId); v.c.position.set(Math.round(rx), Math.round(ry)); v.label.text = ''; seen.add('r' + myId);
-    drawRat(v, { facing: me.facing, grounded: me.grounded, biting: me.biteLeft > 0, down: me.down, dead: me.dead, vx: me.vx, biteT: me.biteLeft / PHYS.biteDur }, colorOf(myId), frame);
+    drawRat(v, { facing: me.facing, grounded: me.grounded, biting: me.biteLeft > 0, down: me.down, dead: me.dead, vx: me.vx, biteT: me.biteLeft / PHYS.biteDur }, colorOf(myId), frame, lookOf(myId));
     v.g.alpha = me.inv > 0 && Math.floor(frame / 3) % 2 ? 0.4 : 1;
     v.bar.clear(); if (me.down) v.bar.rect(0, -6, 14 * (me.revive / RULES.reviveTime), 2).fill(0x6fb06f);
     else if (me.exitProg > 0) v.bar.rect(0, -6, 14 * me.exitProg, 2).fill(0xe8d9c0);
@@ -491,7 +542,7 @@ app.ticker.add(() => {
       const r0 = s0?.rats.find((r) => r.id === r1.id) ?? r1;
       const x = r0.x + (r1.x - r0.x) * t, y = r0.y + (r1.y - r0.y) * t;
       const v = view('r' + r1.id); v.c.position.set(Math.round(x), Math.round(y)); v.label.text = r1.n; v.label.position.set(7, -3); seen.add('r' + r1.id);
-      drawRat(v, { facing: r1.f, grounded: r1.g === 1, biting: r1.b > 0, down: r1.dn === 1, dead: r1.dd === 1, vx: r1.vx, biteT: r1.b / PHYS.biteDur }, colorOf(r1.id), frame);
+      drawRat(v, { facing: r1.f, grounded: r1.g === 1, biting: r1.b > 0, down: r1.dn === 1, dead: r1.dd === 1, vx: r1.vx, biteT: r1.b / PHYS.biteDur }, colorOf(r1.id), frame, lookOf(r1.id));
       v.bar.clear(); if (r1.dn) v.bar.rect(0, -6, 14 * (r1.rv / RULES.reviveTime), 2).fill(0x6fb06f);
       if (r1.wt) v.bar.circle(16, -4, 2).fill(0x7fd3ff);
       v.c.visible = !r1.ex;
@@ -549,6 +600,7 @@ app.ticker.add(() => {
       const st = stationHere();
       $('hint').textContent = st ? `ДЕЙСТ. — ${NORA_STATIONS.find((x) => x.id === st)!.name}: ${NORA_STATIONS.find((x) => x.id === st)!.hint}` : '';
       if (openStation && st !== openStation) closeSheet();
+
       $('info').textContent = `ping ${net.rtt} · ${Math.round(app.ticker.FPS)} fps`;
     }
     if (frame % 6 === 0 && phase === 'raid') {

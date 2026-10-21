@@ -45,7 +45,8 @@ const send = (ws: WebSocket, o: unknown) => { if (ws.readyState === ws.OPEN) ws.
 const broadcast = (room: Room, o: unknown) => { const s = JSON.stringify(o); for (const p of room.peers.values()) if (p.ws.readyState === p.ws.OPEN) p.ws.send(s); };
 function lobbyMsg(room: Room) {
   room.pour = room.pour.filter((id) => store.nora.potions.some((p) => p.id === id));
-  return { t: 'lobby', code: room.code, phase: room.phase, map: room.map, hostId: room.hostId, pour: room.pour, maps: Object.values(MAPS).map((m) => ({ id: m.id, name: m.name, desc: m.desc, locked: m.id !== 'yard' && !store.built(m.id as keyof Builds) })), players: [...room.peers.values()].map((p) => ({ id: p.id, name: p.name })) };
+  const profiles: Record<string, unknown> = {}; for (const p of room.peers.values()) profiles[p.id] = { name: p.profile.name, dna: p.profile.dna, mut: p.profile.mut, raids: p.profile.raids, banked: p.profile.banked, pockets: p.profile.pockets };
+  return { t: 'lobby', code: room.code, phase: room.phase, map: room.map, hostId: room.hostId, pour: room.pour, profiles, maps: Object.values(MAPS).map((m) => ({ id: m.id, name: m.name, desc: m.desc, locked: m.id !== 'yard' && !store.built(m.id as keyof Builds) })), players: [...room.peers.values()].map((p) => ({ id: p.id, name: p.name })) };
 }
 // Нора общая на всю Стаю — рассылаем всем подключённым, своё («me») — каждому отдельно
 function noraMsg() {
@@ -87,7 +88,8 @@ wss.on('connection', (ws, req) => {
       case 'i': {
         for (const i of m.inputs as Input[]) {
           if (typeof i.seq !== 'number') continue;
-          const newest = peer.queue.length ? peer.queue[peer.queue.length - 1].seq : peer.last.seq;
+          let newest = peer.queue.length ? peer.queue[peer.queue.length - 1].seq : peer.last.seq;
+          if (i.seq + 200 < newest) { peer.queue = []; peer.last = { ...peer.last, seq: i.seq - 1 }; newest = i.seq - 1; } // клиент сбросил счётчик (старая страница) — принимаем заново
           if (i.seq <= newest) continue;
           if (peer.queue.length > 60) break;
           peer.queue.push({ seq: i.seq, moveX: clamp(Number(i.moveX) || 0, -1, 1), jump: !!i.jump, jumpHeld: !!i.jumpHeld, bite: !!i.bite, act: !!i.act, actHeld: !!i.actHeld });
@@ -120,7 +122,7 @@ wss.on('connection', (ws, req) => {
         for (const r of rooms.values()) r.pour = r.pour.filter((x) => x !== id);
         const res = drink(peer.profile.dna, peer.profile.mut, pot);
         store.log(`${peer.name} выпила Зелье #${pot.id}${res.family ? ` → ${res.family} ${res.tier}` : ''}`); store.save();
-        send(ws, { t: 'drank', family: res.family, tier: res.tier }); send(ws, meMsg(peer.profile)); pushNora(); break;
+        send(ws, { t: 'drank', family: res.family, tier: res.tier }); send(ws, meMsg(peer.profile)); pushNora(); broadcast(room, lobbyMsg(room)); break;
       }
       case 'build': {
         const k = m.what as keyof Builds; const b = BUILD_INFO[k]; if (!b) break;
@@ -130,7 +132,7 @@ wss.on('connection', (ws, req) => {
         if (k === 'pockets') { // личная постройка крысы за общие Ингредиенты
           const lvl = peer.profile.pockets; if (lvl >= b.max) break;
           if (!store.payByType(b.cost(lvl))) { send(ws, { t: 'err', text: 'Не хватает Ингредиентов' }); break; }
-          peer.profile.pockets = lvl + 1; store.log(`${peer.name} расширила свои Карманы до ${lvl + 1}`); store.save(); send(ws, meMsg(peer.profile)); pushNora(); break;
+          peer.profile.pockets = lvl + 1; store.log(`${peer.name} расширила свои Карманы до ${lvl + 1}`); store.save(); send(ws, meMsg(peer.profile)); pushNora(); broadcast(room, lobbyMsg(room)); break;
         }
         const lvl = store.nora.builds[k]; if (lvl >= b.max) break;
         if (!store.payByType(b.cost(lvl))) { send(ws, { t: 'err', text: 'Не хватает Ингредиентов' }); break; }
@@ -164,7 +166,8 @@ function startRaid(room: Room) {
   const mods = raidMods(poured);
   if (poured.length) { store.log(`${room.code}: вылито ${poured.length} — ${mods.names.join(', ')}`); store.save(); pushNora(); }
   const w = createWorld(room.map, room.seed, mods);
-  for (const p of room.peers.values()) { addRat(w, p.id, p.name, peerMods(p)); p.queue = []; p.last = { ...EMPTY_INPUT }; }
+  // номер последнего инпута сохраняем: пакеты из Норы ещё в полёте, сброс в 0 заблокировал бы ввод до догона счётчика
+  for (const p of room.peers.values()) { addRat(w, p.id, p.name, peerMods(p)); p.queue = []; p.last = { ...EMPTY_INPUT, seq: p.last.seq }; }
   room.world = w; room.phase = 'raid';
   broadcast(room, { t: 'raid', map: w.map, seed: room.seed, mods, ratMods: Object.fromEntries([...w.rats.values()].map((r) => [r.id, r.mods])) });
   console.log(`▶ ${room.code}: ${w.map} with ${room.peers.size} rats`);
@@ -182,7 +185,7 @@ function endRaid(room: Room) {
 }
 function toLobby(room: Room) {
   room.phase = 'lobby'; room.world = null; room.nora = createNoraWorld();
-  for (const p of room.peers.values()) { addRat(room.nora, p.id, p.name, peerMods(p)); p.queue = []; p.last = { ...EMPTY_INPUT }; }
+  for (const p of room.peers.values()) { addRat(room.nora, p.id, p.name, peerMods(p)); p.queue = []; p.last = { ...EMPTY_INPUT, seq: p.last.seq }; }
   broadcast(room, lobbyMsg(room));
 }
 function clamp(v: number, a: number, b: number) { return Math.max(a, Math.min(b, v)); }
