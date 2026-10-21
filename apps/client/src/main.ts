@@ -4,6 +4,8 @@ import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITE
 import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
 import { Touch } from './input';
 import { Net, type LobbyMsg, type ResultsMsg } from './net';
+import { Audio, falloff } from './audio';
+const audio = new Audio();
 
 const VIEW_W = 480, VIEW_H = 270, INTERP_MS = 100;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -50,6 +52,7 @@ $('join').onclick = async () => {
   codeEl.value = code;
   localStorage.setItem('ratName', name); localStorage.setItem('room', code);
   history.replaceState(null, '', `?room=${code}`);
+  audio.unlock(); audio.play('ui');
   net.connect(serverUrl, name, code, acctCode());
   try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch {}
   try { await (screen.orientation as any).lock?.('landscape'); } catch {}
@@ -75,14 +78,14 @@ $('joinBox').insertAdjacentHTML('beforeend', `<div class="muted" style="font-siz
 $('back').onclick = () => { net.send({ t: 'back' }); $('screenResults').classList.remove('open'); };
 function randomCode() { const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 4; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
 
-function showJoin() { phase = 'join'; $('screenLobby').classList.add('open'); $('screenResults').classList.remove('open'); setControls(false); document.body.classList.remove('nora'); closeSheet(); }
+function showJoin() { audio.setMusic('none'); phase = 'join'; $('screenLobby').classList.add('open'); $('screenResults').classList.remove('open'); setControls(false); document.body.classList.remove('nora'); closeSheet(); }
 function setControls(on: boolean) { touch.enabled = on; for (const id of ['jump', 'bite', 'act']) $(id).classList.toggle('vis', on); $('hud').classList.toggle('vis', on); $('rotate').classList.toggle('on', on); $('abort').style.display = on && phase === 'raid' && lobby?.hostId === myId ? '' : 'none'; $('topbar').style.display = on && phase === 'lobby' ? '' : 'none'; }
 $('abort').onclick = () => { if (confirm('Прервать Вылазку для всех? Добыча не вернувшихся пропадёт.')) net.send({ t: 'abort' }); };
 
 // ---------- Нора как уровень ----------
 let openStation: StationId | null = null;
 function enterNora() {
-  phase = 'lobby';
+  phase = 'lobby'; audio.setMusic('nora');
   level = noraLevel();
   me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0; raidModsCur = BASE_RAID;
   buildLevel(level, 'nora');
@@ -156,9 +159,11 @@ function drawPile(g: Graphics, stash: Record<string, number>, areaW: number) {
 function stationHere(): StationId | null { return me && phase === 'lobby' ? stationAt(me.x, me.y)?.id ?? null : null; }
 
 // ---------- шторка станции ----------
-function openSheet(id: StationId) { openStation = id; cauldron = []; $('sheet').classList.add('open'); renderSheet(); }
+function openSheet(id: StationId) { audio.play('ui'); openStation = id; cauldron = []; $('sheet').classList.add('open'); renderSheet(); }
 function closeSheet() { openStation = null; $('sheet').classList.remove('open'); }
 $('sheetClose').onclick = closeSheet;
+$('mute').textContent = audio.muted ? '🔇' : '🔊';
+$('mute').onclick = () => { audio.unlock(); $('mute').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
 function chip(kind: string, count?: number, extra = '') { const k = KINDS[kind]; return `<span class="chip ${k.type}" data-kind="${kind}" ${extra}><img src="${itemIcon(kind)}"/>${k.name}${count !== undefined ? ` <b>×${count}</b>` : ''}</span>`; }
 function propsHtml(p: Potion) { const d = dominant(p); return `<span class="props">${PROPS.filter((x) => p.props[x]).map((x) => `<span${x === d ? ' style="outline:1px solid #e8d9c0"' : ''}>${x} ${p.props[x]}</span>`).join('')}</span>`; }
 const TYPE_RU: Record<string, string> = { food: 'Еда', trash: 'Мусор', secr: 'Выделения', organ: 'Органы' };
@@ -212,8 +217,8 @@ function renderSheet() {
   body.innerHTML = html;
   for (const el of body.querySelectorAll<HTMLElement>('.chip')) el.onclick = () => { if (openStation !== 'cauldron') return; const k = el.dataset.kind!; const have = nora!.stash[k] - cauldron.filter((c) => c === k).length; if (have > 0 && cauldron.length < nora!.cauldron) { cauldron.push(k); renderSheet(); } };
   for (const el of body.querySelectorAll<HTMLElement>('.slot')) el.onclick = () => { const i = Number(el.dataset.i); if (cauldron[i]) { cauldron.splice(i, 1); renderSheet(); } };
-  const brewBtn = body.querySelector<HTMLElement>('#brewBtn'); if (brewBtn) brewBtn.onclick = () => { if (cauldron.length >= 2) { net.send({ t: 'brew', kinds: cauldron }); cauldron = []; } };
-  for (const el of body.querySelectorAll<HTMLElement>('[data-build]')) el.onclick = () => net.send({ t: 'build', what: el.dataset.build });
+  const brewBtn = body.querySelector<HTMLElement>('#brewBtn'); if (brewBtn) brewBtn.onclick = () => { if (cauldron.length >= 2) { net.send({ t: 'brew', kinds: cauldron }); cauldron = []; audio.play('brew'); } };
+  for (const el of body.querySelectorAll<HTMLElement>('[data-build]')) el.onclick = () => { net.send({ t: 'build', what: el.dataset.build }); audio.play('build'); };
   for (const el of body.querySelectorAll<HTMLElement>('[data-pour]')) el.onclick = () => net.send({ t: 'pour', id: Number(el.dataset.pour) });
   for (const el of body.querySelectorAll<HTMLElement>('[data-drink]')) el.onclick = () => { const p = nora!.potions.find((x) => x.id === Number(el.dataset.drink))!; const d = dominant(p); if (confirm(`Выпить Зелье #${p.id}?${d ? ` Мутация «${MUTATION_NAMES[d]}» (${MUTATION_DESC[d][Math.min(2, (meInfo?.mut[d] ?? 0))]}). ` : ' '}Это навсегда.`)) net.send({ t: 'drink', id: p.id }); };
   for (const el of body.querySelectorAll<HTMLElement>('.map')) el.onclick = () => net.send({ t: 'setMap', map: el.dataset.id });
@@ -233,7 +238,7 @@ net.on('raid', (map, seed, mods, ratMods) => {
   raidModsCur = mods ?? BASE_RAID; ratModsById = ratMods ?? {};
   level = generateLevel(map, seed);
   me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0;
-  phase = 'raid'; closeSheet(); document.body.classList.remove('nora'); $('hint').textContent = '';
+  phase = 'raid'; closeSheet(); document.body.classList.remove('nora'); $('hint').textContent = ''; audio.setMusic('raid');
   buildLevel(level, map);
   $('screenLobby').classList.remove('open'); $('screenResults').classList.remove('open');
   setControls(true);
@@ -243,7 +248,7 @@ net.on('results', (m) => showResults(m));
 net.on('nora', (m) => { nora = m; updateStations(); if (openStation) renderSheet(); });
 net.on('me', (m) => { meInfo = m; updateStations(); if (openStation) renderSheet(); });
 net.on('err', (t) => toast(t));
-net.on('drank', (fam, tier) => toast(fam ? `Мутация: ${MUTATION_NAMES[fam as Prop]} ${tier}` : 'Зелье без Доминанты — только ДНК'));
+net.on('drank', (fam, tier) => { audio.play('drank'); toast(fam ? `Мутация: ${MUTATION_NAMES[fam as Prop]} ${tier}` : 'Зелье без Доминанты — только ДНК'); });
 
 net.on('snapshot', (s) => {
   snaps.push(s); while (snaps.length > 30) snaps.shift();
@@ -275,7 +280,7 @@ function reconcile(rs: RatSnap) {
 // ---------- итоги ----------
 import { ITEM_PROPS as ITEM_PROPS_LOCAL } from '@krysy/sim';
 function showResults(m: ResultsMsg) {
-  phase = 'results'; setControls(false);
+  phase = 'results'; setControls(false); audio.setMusic('none');
   const rows = m.rows.map((r) => `<tr><td>${r.exited ? '🏁' : '💀'} ${esc(r.name)}</td><td>${r.exited ? 'вынесла' : 'не вернулась'}</td><td>${r.loot.map((k) => `<img src="${itemIcon(k)}" title="${KINDS[k]?.name ?? k}" style="width:16px;height:16px;vertical-align:middle"/>`).join(' ') || '—'}</td></tr>`).join('');
   $('resultsBody').innerHTML = `<div class="muted">${MAPS[m.map]?.name ?? m.map} · Переполох ${m.panic} %</div><table><tr><th>Крыса</th><th></th><th>Добыча</th></tr>${rows}</table>`;
   $('resultsNote').textContent = 'Добыча вынесших уже на Складе Стаи — вари Зелья в Норе.';
@@ -285,7 +290,10 @@ function showResults(m: ResultsMsg) {
 // ---------- события → тосты ----------
 let toastTimer = 0;
 function toast(t: string) { const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove('on'), 2200); }
+const EVENT_SFX: Record<string, string> = { hit: 'hit', hurt: 'hurt', pick: 'pick', stomp: 'stomp', swing: 'swing', scream: 'scream', panic: 'panic', steal: 'steal', pigeondead: 'pigeondead', kill: 'kill', cat: 'cat', drink: 'drink', mark: 'mark', eat: 'eat', infect: 'infect', sick: 'sick', weak: 'sick', down: 'down', dead: 'dead', revive: 'revive', exit: 'exit', luk: 'luk', stage: 'stage', nofit: 'nofit', catdead: 'kill' };
 function onEvent(e: Event) {
+  const sfx = EVENT_SFX[e.k];
+  if (sfx) { const g = e.x || e.y ? (me ? falloff(e.x - me.x, e.y - me.y) : 0.5) : 1; audio.play(sfx, g); }
   switch (e.k) {
     case 'stage': toast(`⚠️ ${e.a}`); break;
     case 'luk': toast('🕳️ Люк открылся'); break;
@@ -425,7 +433,12 @@ app.ticker.add(() => {
     if (me) {
       const input: Input = { seq: ++seq, ...s };
       prevX = me.x; prevY = me.y;
+      const wasGrounded = me.grounded, wasBite = me.biteCd;
+      if (s.bite && wasBite === 0 && !me.down) audio.play('bite');
       stepRat(level, me, input, solidOthers(), raidModsCur.slippery, raidModsCur.sticky); pendingInputs.push(input);
+      if (wasGrounded && me.vy < -150) audio.play('jump');
+      if (!wasGrounded && me.grounded) audio.play('land');
+      if (me.grounded && Math.abs(me.vx) > 40 && seq % 14 === 0) audio.play('step', 0.6);
       net.sendInput(input, lastServerMe?.s ?? 0);
     }
   }
@@ -521,6 +534,7 @@ app.ticker.add(() => {
     if (frame % 6 === 0 && phase === 'raid') {
       const meS = s1.rats.find((r) => r.id === myId);
       $('panicFill').style.width = s1.panic + '%';
+      audio.setMusic(s1.panic >= 60 ? 'tense' : 'raid');
       if (meS) {
         $('hpFill').style.width = Math.round((meS.hp / (meS.mh || 100)) * 100) + '%';
         $('hpFill').style.background = meS.hp > 50 ? '#6fb06f' : meS.hp > 25 ? '#d0a040' : '#d04040';
