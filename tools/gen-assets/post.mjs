@@ -5,6 +5,7 @@
 //   node tools/gen-assets/post.mjs                      # все id из prompts.json, у которых есть raw/<id>.png
 //   node tools/gen-assets/post.mjs --only bg_yard_far
 //   node tools/gen-assets/post.mjs --chroma ff00ff      # снять ровный magenta-фон (для gpt-image-2 или если фон не прозрачный)
+//   node tools/gen-assets/post.mjs --chroma ff00ff --chroma-tolerance 90 --alpha-threshold 128
 //   node tools/gen-assets/post.mjs --kernel lanczos3    # переопределить фильтр даунскейла для всех
 //   node tools/gen-assets/post.mjs --preview 4          # дополнительно сохранить увеличенную x4 копию (nearest) для просмотра
 //   node tools/gen-assets/post.mjs --in <папка с png> --out <папка>   # обработать картинки, полученные из Codex CLI
@@ -12,7 +13,9 @@
 // Шаги для каждого файла:
 //   1) crop=cover: обрезка по центру до пропорций target (например 1536x1024 -> 1536x864 под 480x270)
 //   2) даунскейл до target.w x target.h (nearest — для сеточного пиксель-арта, lanczos3 — для фонов)
-//   3) --chroma: пиксели, близкие к ключевому цвету, становятся прозрачными
+//   3) --chroma: пиксели, близкие к ключевому цвету, становятся прозрачными. Ключ снимается ДО даунскейла
+//      (в исходном разрешении), чтобы фильтр не подмешивал цвет фона в края; после даунскейла альфа
+//      бинаризуется порогом 50% (--alpha-threshold, 0 — не бинаризовать)
 //   4) квантование палитры до N цветов (png palette, без дизеринга)
 // Вывод: <out>/<id>.png (и <out>/preview/<id>@Nx.png при --preview).
 
@@ -38,6 +41,7 @@ const outDir = args.in && !args.out ? join(inDir, 'processed') : baseOut;
 const previewScale = args.preview ? Number(args.preview) : 0;
 const chroma = args.chroma ? parseHex(String(args.chroma)) : null;
 const chromaTol = Number(args['chroma-tolerance'] ?? 60); // евклидово расстояние в RGB
+const alphaThreshold = Number(args['alpha-threshold'] ?? 128); // после даунскейла: alpha < порога -> 0, иначе 255
 const only = args.only ? String(args.only).split(',').map((s) => s.trim()).filter(Boolean) : null;
 
 const spec = JSON.parse(await readFile(promptsPath, 'utf8'));
@@ -87,17 +91,25 @@ for (const file of files) {
       img = img.extract({ left: Math.floor((meta.width - w) / 2), top: Math.floor((meta.height - h) / 2), width: w, height: h });
     }
 
-    if (target) {
-      img = img.resize(target.w, target.h, { kernel: kernelOf(kernel), fit: 'fill' });
-    }
-
-    // Хромакей: работаем с сырыми пикселями после даунскейла
+    // Хромакей: снимаем ключевой цвет в исходном разрешении, до даунскейла (иначе lanczos
+    // подмешивает magenta в края и получается розовая кайма). sharp ресайзит с premultiplied alpha.
     if (chroma) {
       const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
       for (let i = 0; i < data.length; i += info.channels) {
         const d = Math.hypot(data[i] - chroma[0], data[i + 1] - chroma[1], data[i + 2] - chroma[2]);
         if (d <= chromaTol) data[i + 3] = 0;
       }
+      img = sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } });
+    }
+
+    if (target) {
+      img = img.resize(target.w, target.h, { kernel: kernelOf(kernel), fit: 'fill' });
+    }
+
+    // Бинаризация альфы: пиксель-арту не нужны полупрозрачные края
+    if (chroma && alphaThreshold > 0) {
+      const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
+      for (let i = 3; i < data.length; i += info.channels) data[i] = data[i] < alphaThreshold ? 0 : 255;
       img = sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } });
     }
 

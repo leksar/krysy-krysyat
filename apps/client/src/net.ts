@@ -30,10 +30,19 @@ export class Net {
   connect(url: string, name: string, room: string, code: string) {
     this.close();
     this.h.status?.(`подключаюсь…`);
-    const ws = new WebSocket(`${url}?name=${encodeURIComponent(name)}&room=${encodeURIComponent(room)}&code=${encodeURIComponent(code)}`);
+    const ws = new WebSocket(`${url}?name=${encodeURIComponent(name)}&room=${encodeURIComponent(room)}&code=${encodeURIComponent(code)}&v=${encodeURIComponent((import.meta.env.VITE_BUILD as string | undefined) ?? 'dev')}`);
     this.ws = ws;
     ws.onopen = () => { this.h.status?.('на связи'); this.pingTimer = window.setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000); };
-    ws.onclose = (e) => { this.h.status?.(e.code === 4000 ? 'комната полна' : `отключено (${e.code})`, true); if (this.pingTimer) clearInterval(this.pingTimer); };
+    ws.onclose = (e) => {
+      if (e.code === 4002) { // сервер новее страницы: Pages может отставать на минуту, поэтому ждём и не зацикливаемся
+        const n = Number(sessionStorage.getItem('reloads') ?? 0);
+        if (n < 6) { sessionStorage.setItem('reloads', String(n + 1)); this.h.status?.(`вышла новая версия — обновляю страницу через 10 с (${n + 1}/6)…`, true); setTimeout(() => location.reload(), 10000); }
+        else this.h.status?.('вышла новая версия — обнови страницу через минуту', true);
+        return;
+      }
+      sessionStorage.removeItem('reloads');
+      this.h.status?.(e.code === 4000 ? 'комната полна' : `отключено (${e.code})`, true); if (this.pingTimer) clearInterval(this.pingTimer);
+    };
     ws.onerror = () => this.h.status?.('ошибка соединения', true);
     ws.onmessage = (ev) => { this.bytesIn += String(ev.data).length; this.handle(JSON.parse(String(ev.data))); };
   }

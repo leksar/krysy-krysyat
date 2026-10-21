@@ -9,6 +9,7 @@ const MAX_RATS = 6;
 const SNAP_EVERY = 3; // 60 Гц тик → 20 Гц снапшоты
 const RESULTS_SEC = 15;
 const VERSION = 'v1-nora';
+const BUILD = process.env.BUILD_SHA ?? 'dev'; // одинаков у клиента и сервера, если собраны из одного коммита
 const DB_PATH = (process.env.DB_PATH ?? 'data/krysy.json').replace(/\.sqlite$/, '.json');
 const store = new Store(DB_PATH);
 process.on('SIGTERM', () => { store.flush(); process.exit(0); });
@@ -29,7 +30,7 @@ const http = createServer((req, res) => {
     const r: Record<string, unknown> = {};
     for (const [c, room] of rooms) r[c] = { phase: room.phase, map: room.map, rats: room.peers.size, queues: [...room.peers.values()].map((p) => p.queue.length) };
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
-    res.end(JSON.stringify({ ok: true, version: VERSION, tps: tpsLast, rooms: r }));
+    res.end(JSON.stringify({ ok: true, version: VERSION, build: BUILD, tps: tpsLast, rooms: r }));
   } else { res.writeHead(404); res.end(); }
 });
 const wss = new WebSocketServer({ server: http, maxPayload: 4096 });
@@ -63,6 +64,9 @@ wss.on('connection', (ws, req) => {
   const name = (url.searchParams.get('name') ?? '').trim().slice(0, 12) || `крыса${nextId}`;
   const acct = (url.searchParams.get('code') ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, 24);
   if (acct.length < 6) { ws.close(4001, 'no account'); return; }
+  // клиент другой сборки строит другую карту из того же сида — не пускаем, пусть перезагрузится
+  const cv = url.searchParams.get('v') ?? 'dev';
+  if (BUILD !== 'dev' && cv !== 'dev' && cv !== BUILD) { console.log(`✗ ${name}: client build ${cv} ≠ server ${BUILD}`); ws.close(4002, 'outdated'); return; }
   const room = getRoom(code);
   if (room.peers.size >= MAX_RATS) { ws.close(4000, 'full'); return; }
   const id = String(nextId++);

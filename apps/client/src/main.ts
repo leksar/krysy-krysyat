@@ -70,6 +70,7 @@ async function pollRooms() {
   } catch { $('rooms').textContent = 'сервер не отвечает'; }
 }
 setInterval(pollRooms, 3000); pollRooms();
+$('joinBox').insertAdjacentHTML('beforeend', `<div class="muted" style="font-size:11px;opacity:.5">сборка ${(import.meta.env.VITE_BUILD as string | undefined) ?? 'dev'}</div>`);
 $('back').onclick = () => { net.send({ t: 'back' }); $('screenResults').classList.remove('open'); };
 function randomCode() { const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 4; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
 
@@ -202,7 +203,7 @@ net.on('raid', (map, seed, mods, ratMods) => {
   raidModsCur = mods ?? BASE_RAID; ratModsById = ratMods ?? {};
   level = generateLevel(map, seed);
   me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0;
-  phase = 'raid'; closeSheet(); document.body.classList.remove('nora');
+  phase = 'raid'; closeSheet(); document.body.classList.remove('nora'); $('hint').textContent = '';
   buildLevel(level, map);
   $('screenLobby').classList.remove('open'); $('screenResults').classList.remove('open');
   setControls(true);

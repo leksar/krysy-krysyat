@@ -65,12 +65,15 @@ class G {
 
 type Cell = { r: number; c: number };
 
+export let lastGenAttempts = 0;
 export function generateLevel(themeId: string, seed: number): Level {
   const theme = (MAPS[themeId] ? themeId : 'yard') as ThemeId;
-  for (let attempt = 0; attempt < 24; attempt++) {
+  for (let attempt = 0; attempt < 40; attempt++) {
     const lvl = tryGenerate(theme, (seed + attempt * 7919) | 0);
+    lastGenAttempts = attempt + 1;
     if (lvl) return lvl;
   }
+  lastGenAttempts = -1;
   return tryGenerate(theme, 1, true)!;
 }
 
@@ -176,8 +179,10 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
 function tree(g: G, a: number, top: number) {
   const h = 6 + g.ri(5);
   g.wall(a, top - h + 1, top); g.wall(a + 1, top - h + 1, top);
-  // кроны с обеих сторон каждые 2 ряда — ствол перекрывает проход, значит дерево должно быть лазабельным с любой стороны
-  for (let r = top - 2; r > top - h; r -= 2) { g.ledge(r, a + 2, a + 2 + g.ri(3)); g.ledge(r, a - 1 - g.ri(3), a - 1); }
+  // кроны с обеих сторон каждые 2 ряда, через уровень смещены наружу: тогда над одним концом кроны всегда свободно,
+  // и подъём «вверх на 2, потом вбок на 2» проходит (ствол перекрывает проход — дерево обязано быть лазабельным)
+  let k = 0;
+  for (let r = top - 2; r > top - h; r -= 2, k++) { const o = k % 2 ? 2 : 0; g.ledge(r, a + 2 + o, a + 4 + o); g.ledge(r, a - 3 - o, a - 1 - o); }
   g.ledge(top - h, a - 2, a + 3);
 }
 function garage(g: G, a: number, top: number) {
@@ -189,14 +194,15 @@ function garage(g: G, a: number, top: number) {
 function tower(g: G, a: number, top: number, kind: 'balcony' | 'lift' | 'escape') {
   const h = 12 + g.ri(8), w = kind === 'lift' ? 1 : 2;
   g.box(top - h + 1, top, a, a + w);
-  for (let r = top - 2; r > top - h; r -= 2) { g.ledge(r, a + w + 1, a + w + 2 + g.ri(2)); g.ledge(r, a - 2 - g.ri(2), a - 1); }
+  let k = 0;
+  for (let r = top - 2; r > top - h; r -= 2, k++) { const o = k % 2 ? 2 : 0; g.ledge(r, a + w + 1 + o, a + w + 3 + o); g.ledge(r, a - 3 - o, a - 1 - o); }
   g.ledge(top - h, a - 1, a + w + 1);
 }
 function bench(g: G, a: number, top: number) { g.ledge(top - 1, a, a + 3); if (g.rand() < 0.5) g.box(top - 2, top, a + 6, a + 7); }
 function bins(g: G, a: number, top: number) { g.box(top - 2, top, a, a + 2); g.box(top - 2, top, a + 4, a + 6); }
 function table(g: G, a: number, top: number) { const w = 5 + g.ri(4); g.box(top - 1, top, a, a + w); g.ledge(top, a - 1, a - 1); if (g.rand() < 0.5) g.ledge(top - 4, a + 1, a + w - 1); }
-function shelves(g: G, a: number, top: number) { let r = top - 3; let off = 0; for (let i = 0; i < 3 + g.ri(3); i++) { g.ledge(r, a + off, a + off + 4 + g.ri(3)); r -= 2 + g.ri(2); off += g.pick([-3, 3, 4]); } }
+function shelves(g: G, a: number, top: number) { let r = top - 2; let off = 0; for (let i = 0; i < 3 + g.ri(3); i++) { g.ledge(r, a + off, a + off + 3); r -= 2; off += g.pick([-3, 3]); } }
 function fridge(g: G, a: number, top: number) { g.box(top - 5, top, a, a + 2); g.ledge(top - 1, a - 2, a - 2); g.ledge(top - 3, a - 3, a - 2); }
 function hut(g: G, a: number, top: number) { const w = 4 + g.ri(3); g.box(top - 3, top, a, a + w); g.ledge(top - 1, a - 2, a - 1); g.ledge(top - 5, a + 1, a + 2); }
-function antenna(g: G, a: number, top: number) { const h = 8 + g.ri(6); g.wall(a, top - h + 1, top); for (let r = top - 2; r > top - h; r -= 2) { g.ledge(r, a + 1, a + 1 + g.ri(2)); g.ledge(r, a - 1 - g.ri(2), a - 1); } }
+function antenna(g: G, a: number, top: number) { const h = 8 + g.ri(6); g.wall(a, top - h + 1, top); let k = 0; for (let r = top - 2; r > top - h; r -= 2, k++) { const o = k % 2 ? 2 : 0; g.ledge(r, a + 1 + o, a + 2 + o); g.ledge(r, a - 2 - o, a - 1 - o); } }
 function ventbox(g: G, a: number, top: number) { g.box(top - 1, top, a, a + 1 + g.ri(2)); }

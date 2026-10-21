@@ -24,7 +24,10 @@ jobs:
       - run: npm ci
       # Игра — корень сайта; прототип 010 остаётся под /proto/010/ (011 заморожен, см. prototypes/011-net/README.md)
       - name: Build client and prototype
+        env:
+          VITE_BUILD: sha-${{ github.sha }}
         run: |
+          export VITE_BUILD=sha-${GITHUB_SHA::7}
           npm run build -w apps/client
           npm run build -w prototypes/010-touch
       - name: Assemble site

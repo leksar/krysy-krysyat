@@ -11,7 +11,8 @@ COPY apps/server apps/server
 RUN npm run build -w packages/sim && npm run build -w apps/server && npm prune --omit=dev
 
 FROM node:24-alpine
-ENV NODE_ENV=production PORT=2567
+ARG BUILD_SHA=dev
+ENV NODE_ENV=production PORT=2567 BUILD_SHA=$BUILD_SHA
 WORKDIR /app
 COPY --from=build /app /app
 RUN mkdir -p /data && chown node:node /data
