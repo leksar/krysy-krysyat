@@ -15,7 +15,9 @@ const store = new Store(DB_PATH);
 process.on('SIGTERM', () => { store.flush(); process.exit(0); });
 process.on('SIGINT', () => { store.flush(); process.exit(0); });
 
-type Peer = { ws: WebSocket; id: string; name: string; room: Room; queue: Input[]; last: Input; alive: boolean; profile: Profile; transAt: number; ignoreBelow: number };
+type Peer = { ws: WebSocket; id: string; name: string; room: Room; queue: Input[]; last: Input; alive: boolean; profile: Profile; transAt: number; ignoreBelow: number; net: NetStats };
+/** Диагностика соединения: RTT по ws ping/pong, входящие пакеты ввода, стойлы (>1 с без ввода в Вылазке), пиковая очередь */
+type NetStats = { rtt: number; pingAt: number; inPk: number; inSeq: number; lastInAt: number; stalls: number; maxQ: number; since: number; ip: string; ua: string };
 type Room = { code: string; peers: Map<string, Peer>; hostId: string | null; map: string; phase: Phase; world: World | null; nora: World; phaseLeft: number; seed: number; pour: number[] };
 const rooms = new Map<string, Room>();
 let nextId = 1;
@@ -28,7 +30,7 @@ const http = createServer((req, res) => {
   }
   if (req.url === '/health' || req.url === '/') {
     const r: Record<string, unknown> = {};
-    for (const [c, room] of rooms) r[c] = { phase: room.phase, map: room.map, rats: room.peers.size, queues: [...room.peers.values()].map((p) => p.queue.length) };
+    for (const [c, room] of rooms) r[c] = { phase: room.phase, map: room.map, rats: room.peers.size, queues: [...room.peers.values()].map((p) => p.queue.length), net: [...room.peers.values()].map((p) => ({ name: p.name, rtt: p.net.rtt, stalls: p.net.stalls, maxQ: p.net.maxQ, ua: p.net.ua })) };
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
     res.end(JSON.stringify({ ok: true, version: VERSION, build: BUILD, tps: tpsLast, rooms: r }));
   } else { res.writeHead(404); res.end(); }
@@ -71,10 +73,10 @@ wss.on('connection', (ws, req) => {
   const room = getRoom(code);
   if (room.peers.size >= MAX_RATS) { ws.close(4000, 'full'); return; }
   const id = String(nextId++);
-  const peer: Peer = { ws, id, name, room, queue: [], last: { ...EMPTY_INPUT }, alive: true, profile: store.profile(acct, name), transAt: 0, ignoreBelow: 0 };
+  const peer: Peer = { ws, id, name, room, queue: [], last: { ...EMPTY_INPUT }, alive: true, profile: store.profile(acct, name), transAt: 0, ignoreBelow: 0, net: { rtt: -1, pingAt: 0, inPk: 0, inSeq: 0, lastInAt: Date.now(), stalls: 0, maxQ: 0, since: Date.now(), ip: String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim(), ua: shortUa(String(req.headers['user-agent'] ?? '')) } };
   room.peers.set(id, peer);
   if (!room.hostId) room.hostId = id;
-  console.log(`+ ${name} (#${id}) → ${code} [${room.peers.size}]`);
+  console.log(`+ ${name} (#${id}) → ${code} [${room.peers.size}] ${peer.net.ip} ${peer.net.ua}`);
   send(ws, { t: 'welcome', id, tickHz: TICK_HZ, version: VERSION });
   send(ws, noraMsg()); send(ws, meMsg(peer.profile));
   if (room.phase !== 'raid') addRat(room.nora, id, name, peerMods(peer));
@@ -86,6 +88,7 @@ wss.on('connection', (ws, req) => {
     let m: any; try { m = JSON.parse(String(data)); } catch { return; }
     switch (m.t) {
       case 'i': {
+        peer.net.inPk++; peer.net.inSeq += (m.inputs as Input[]).length; peer.net.lastInAt = Date.now(); if (peer.queue.length > peer.net.maxQ) peer.net.maxQ = peer.queue.length;
         for (const i of m.inputs as Input[]) {
           if (typeof i.seq !== 'number') continue;
           // 500 мс после смены фазы вход закрыт: хвост пакетов прошлой фазы (в полёте ≤ RTT) не доходит до нового мира
@@ -145,15 +148,15 @@ wss.on('connection', (ws, req) => {
       case 'abort': if (peer.id === room.hostId && room.phase === 'raid' && room.world) { console.log(`✖ ${room.code}: aborted by host`); room.world.over = true; } break;
     }
   });
-  ws.on('close', () => {
+  ws.on('close', (ccode, creason) => {
+    const n = peer.net; console.log(`- ${name} (#${id}) ← ${code} [${room.peers.size - 1}] close=${ccode}${creason?.length ? ' ' + creason : ''} ${Math.round((Date.now() - n.since) / 1000)}s rtt=${n.rtt}ms stalls=${n.stalls} maxQ=${n.maxQ}`);
     room.peers.delete(id);
     room.nora.rats.delete(id);
     if (room.world) { const r = room.world.rats.get(id); if (r && !r.exited) { r.dead = true; } }
     if (room.hostId === id) room.hostId = room.peers.keys().next().value ?? null;
-    console.log(`- ${name} (#${id}) ← ${code} [${room.peers.size}]`);
     if (!room.peers.size) rooms.delete(code); else broadcast(room, lobbyMsg(room));
   });
-  ws.on('pong', () => (peer.alive = true));
+  ws.on('pong', () => { peer.alive = true; if (peer.net.pingAt) peer.net.rtt = Math.round(performance.now() - peer.net.pingAt); });
 });
 
 /** Крыса стоит у станции Норы (сервер не верит клиенту на слово) */
@@ -210,6 +213,7 @@ setInterval(() => {
         const solid = [...w.rats.values()];
         for (const p of room.peers.values()) {
           const steps = p.queue.length > 8 ? 3 : p.queue.length > 3 ? 2 : 1;
+          if (w.tick % 60 === 0 && Date.now() - p.net.lastInAt > 1000 && Date.now() - p.net.since > 3000) p.net.stalls++;
           for (let k = 0; k < steps; k++) { const input = p.queue.length ? p.queue.shift()! : { ...p.last, jump: false, bite: false, act: false, seq: p.last.seq }; p.last = input; const r = w.rats.get(p.id); if (r) stepRat(w.level, r, input, solid); }
         }
         if (w.tick % SNAP_EVERY === 0) broadcast(room, { t: 's', ...snapWorld(w), ev: [] });
@@ -221,6 +225,7 @@ setInterval(() => {
       const solidRats = [...w.rats.values()].filter((r) => !r.dead && !r.exited);
       for (const p of room.peers.values()) {
         const steps = p.queue.length > 8 ? 3 : p.queue.length > 3 ? 2 : 1;
+        if (w.tick % 60 === 0 && Date.now() - p.net.lastInAt > 1000 && Date.now() - p.net.since > 3000) p.net.stalls++;
         let input = p.last;
         for (let k = 0; k < steps; k++) {
           input = p.queue.length ? p.queue.shift()! : { ...p.last, jump: false, bite: false, act: false, seq: p.last.seq };
@@ -241,8 +246,23 @@ setInterval(() => {
 setInterval(() => {
   for (const room of rooms.values()) for (const p of room.peers.values()) {
     if (!p.alive) { p.ws.terminate(); continue; }
-    p.alive = false; p.ws.ping();
+    p.alive = false; p.net.pingAt = performance.now(); p.ws.ping();
   }
 }, 10_000);
+// диагностика соединений: раз в 15 с строка на комнату — RTT, пакетов ввода в секунду, очередь, стойлы
+let netAt = Date.now();
+setInterval(() => {
+  const dt = (Date.now() - netAt) / 1000; netAt = Date.now();
+  for (const room of rooms.values()) {
+    if (!room.peers.size) continue;
+    const parts = [...room.peers.values()].map((p) => { const n = p.net; const line = `${p.name} rtt=${n.rtt}ms in=${(n.inPk / dt).toFixed(0)}pk/${(n.inSeq / dt).toFixed(0)}i q=${p.queue.length}/${n.maxQ}${n.stalls ? ` stalls=${n.stalls}` : ''}`; n.inPk = 0; n.inSeq = 0; n.maxQ = p.queue.length; return line; });
+    console.log(`~ ${room.code} ${room.phase}: ${parts.join(' | ')}`);
+  }
+}, 15_000);
+function shortUa(ua: string): string {
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Win' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '?';
+  const br = /YaBrowser/.test(ua) ? 'Yandex' : /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox/.test(ua) ? 'Firefox' : /Chrome/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : '?';
+  return `${os}/${br}`;
+}
 
 http.listen(PORT, () => console.log(`krysy server ${VERSION} on :${PORT}, tick ${TICK_HZ} Hz, snapshots ${TICK_HZ / SNAP_EVERY} Hz, maps: ${Object.keys(MAPS).join(',')}`));
