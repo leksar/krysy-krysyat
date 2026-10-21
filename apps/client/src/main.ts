@@ -245,7 +245,7 @@ document.addEventListener('pointerup', (e) => {
   if (best) openRatSheet(best);
 });
 $('sheetClose').onclick = closeSheet;
-(window as any).krysy = { openRat: (id?: string) => openRatSheet(id ?? myId), me: () => myId, sheet: (id: StationId) => openSheet(id), pos: () => (me ? { x: me.x, y: me.y, st: stationHere() } : null), reveal: (f: Prop | null, t: number) => showReveal(f, t) }; // отладка из консоли
+(window as any).krysy = { openRat: (id?: string) => openRatSheet(id ?? myId), me: () => myId, sheet: (id: StationId) => openSheet(id), pos: () => (me ? { x: me.x, y: me.y, st: stationHere() } : null), reveal: (f: Prop | null, t: number) => showReveal(f, t), drop: () => net.drop(), jitter: () => ({ jitter: snapJitter, interp: interpMs(), rtt: net.rtt }) }; // отладка из консоли
 $('mute').textContent = audio.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { audio.unlock(); $('mute').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
 const TYPE_RU: Record<string, string> = { food: 'Еда', trash: 'Мусор', secr: 'Выделения', organ: 'Органы' };
@@ -301,7 +301,7 @@ function renderSheet() {
 }
 function raidPreview() { if (!nora || !lobby) return ''; const ps = nora.potions.filter((p) => lobby!.pour.includes(p.id)); const names = new Set<string>(); for (const p of ps) for (const pr of PROPS) if (p.props[pr]) names.add(MODIFIER_NAMES[pr]); return [...names].join(', '); }
 
-net.on('status', (t, closed) => { const st = document.getElementById('status'); if (st) st.textContent = t; if (closed) { showJoin(); $('joinBox').insertAdjacentHTML('beforeend', `<div class="muted">${t}</div>`); } });
+net.on('status', (t, closed) => { const st = document.getElementById('status'); if (st) st.textContent = t; if (/оборвалась|переподключ|на связи/.test(t) && phase !== 'join') toast(t); if (closed) { showJoin(); $('joinBox').insertAdjacentHTML('beforeend', `<div class="muted">${t}</div>`); } });
 net.on('welcome', (id) => { myId = id; });
 net.on('lobby', (m) => {
   lobby = m; selectedMap = m.map; profiles = m.profiles ?? {};
@@ -334,6 +334,7 @@ net.on('err', (t) => toast(t));
 net.on('drank', (fam, tier) => { audio.play('drank'); setTimeout(() => showReveal((fam as Prop) || null, tier), 150); });
 
 net.on('snapshot', (s) => {
+  if (lastSnapAt) snapJitter = snapJitter * 0.9 + Math.abs(s.at - lastSnapAt - 50) * 0.1; lastSnapAt = s.at;
   snaps.push(s); while (snaps.length > 30) snaps.shift();
   const rs = s.rats.find((r) => r.id === myId);
   if (rs && level) {
@@ -352,13 +353,20 @@ function solidOthers() {
   const s = snaps[snaps.length - 1]; if (!s) return [];
   return s.rats.filter((r) => r.id !== myId && !r.dd && !r.ex).map((r) => ({ x: r.x, y: r.y, w: RAT_W, h: RAT_H, vx: r.vx, vy: r.vy, grounded: r.g === 1 }));
 }
+let errX = 0, errY = 0; // визуальная ошибка после сверки с сервером: гасится за несколько кадров, а не телепортом
 function reconcile(rs: RatSnap) {
   if (!me || !level) return;
+  const px = me.x, py = me.y;
   applyRatSnap(me, rs);
   pendingInputs = pendingInputs.filter((i) => i.seq > rs.s);
   const others = solidOthers();
   for (const i of pendingInputs) stepRat(level, me, i, others, raidModsCur.slippery, raidModsCur.sticky);
+  errX += px - me.x; errY += py - me.y;
+  if (Math.hypot(errX, errY) > 48) { errX = 0; errY = 0; } // слишком далеко — честный телепорт (респаун, толчок)
 }
+/** Джиттер прихода снапшотов (ожидаем 50 мс): чем рваннее связь, тем длиннее буфер интерполяции чужих */
+let lastSnapAt = 0, snapJitter = 0;
+function interpMs() { return Math.min(400, INTERP_MS + 3 * snapJitter); }
 
 // ---------- итоги ----------
 function showResults(m: ResultsMsg) {
@@ -607,7 +615,8 @@ app.ticker.add(() => {
   const scale = Math.max(1, Math.min(app.screen.width / VIEW_W, app.screen.height / VIEW_H));
   stage.scale.set(scale);
 
-  const renderAt = now - INTERP_MS;
+  const renderAt = now - interpMs();
+  errX *= 0.82; errY *= 0.82; if (Math.abs(errX) < 0.05) errX = 0; if (Math.abs(errY) < 0.05) errY = 0;
   let s0 = snaps[0], s1 = snaps[snaps.length - 1];
   for (let i = 0; i < snaps.length; i++) { if (snaps[i].at <= renderAt) s0 = snaps[i]; if (snaps[i].at >= renderAt) { s1 = snaps[i]; break; } }
   const t = s0 && s1 && s1.at > s0.at ? Math.min(1, Math.max(0, (renderAt - s0.at) / (s1.at - s0.at))) : 1;
@@ -615,7 +624,7 @@ app.ticker.add(() => {
 
   let camX = level.spawns[0].x, camY = level.spawns[0].y;
   if (me) {
-    const rx = prevX + (me.x - prevX) * a, ry = prevY + (me.y - prevY) * a;
+    const rx = prevX + (me.x - prevX) * a + errX, ry = prevY + (me.y - prevY) * a + errY;
     const v = view('r' + myId); v.c.position.set(Math.round(rx), Math.round(ry)); v.label.text = ''; seen.add('r' + myId);
     drawRat(v, { facing: me.facing, grounded: me.grounded, biting: me.biteLeft > 0, down: me.down, dead: me.dead, vx: me.vx, biteT: me.biteLeft / PHYS.biteDur }, colorOf(myId), frame, lookOf(myId));
     v.g.alpha = me.inv > 0 && Math.floor(frame / 3) % 2 ? 0.4 : 1;

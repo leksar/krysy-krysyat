@@ -17,8 +17,11 @@ process.on('SIGINT', () => { store.flush(); process.exit(0); });
 
 type Peer = { ws: WebSocket; id: string; name: string; room: Room; queue: Input[]; last: Input; alive: boolean; profile: Profile; transAt: number; ignoreBelow: number; net: NetStats };
 /** Диагностика соединения: RTT по ws ping/pong, входящие пакеты ввода, стойлы (>1 с без ввода в Вылазке), пиковая очередь */
-type NetStats = { rtt: number; pingAt: number; inPk: number; inSeq: number; lastInAt: number; stalls: number; maxQ: number; since: number; ip: string; ua: string };
-type Room = { code: string; peers: Map<string, Peer>; hostId: string | null; map: string; phase: Phase; world: World | null; nora: World; phaseLeft: number; seed: number; pour: number[] };
+type NetStats = { rtt: number; pingAt: number; inPk: number; inSeq: number; lastInAt: number; lastMsgAt: number; stalls: number; maxQ: number; since: number; ip: string; ua: string };
+type Room = { code: string; peers: Map<string, Peer>; hostId: string | null; map: string; phase: Phase; world: World | null; nora: World; phaseLeft: number; seed: number; pour: number[]; ghosts: Map<string, Ghost> };
+/** Отвалившаяся в Вылазке крыса ждёт хозяина: тот же аккаунт в той же комнате получает свой прежний id и крысу обратно */
+type Ghost = { id: string; name: string; until: number };
+const GHOST_MS = 45_000;
 const rooms = new Map<string, Room>();
 let nextId = 1;
 
@@ -35,11 +38,12 @@ const http = createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, version: VERSION, build: BUILD, tps: tpsLast, rooms: r }));
   } else { res.writeHead(404); res.end(); }
 });
-const wss = new WebSocketServer({ server: http, maxPayload: 4096 });
+// permessage-deflate: снапшоты JSON сжимаются в 3–6 раз (45 КБ/с → ~10 на крысу) — на мобильных и под троттлингом это решает
+const wss = new WebSocketServer({ server: http, maxPayload: 4096, perMessageDeflate: { threshold: 128, zlibDeflateOptions: { level: 3 }, concurrencyLimit: 8 } });
 
 function getRoom(code: string): Room {
   let r = rooms.get(code);
-  if (!r) { r = { code, peers: new Map(), hostId: null, map: 'yard', phase: 'lobby', world: null, nora: createNoraWorld(), phaseLeft: 0, seed: hash(code), pour: [] }; rooms.set(code, r); }
+  if (!r) { r = { code, peers: new Map(), hostId: null, map: 'yard', phase: 'lobby', world: null, nora: createNoraWorld(), phaseLeft: 0, seed: hash(code), pour: [], ghosts: new Map() }; rooms.set(code, r); }
   return r;
 }
 function hash(s: string) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h | 0; }
@@ -70,21 +74,23 @@ wss.on('connection', (ws, req) => {
   const cv = url.searchParams.get('v') ?? 'dev';
   if (BUILD !== 'dev' && cv !== 'dev' && cv !== BUILD) { console.log(`✗ ${name}: client build ${cv} ≠ server ${BUILD}`); ws.close(4002, 'outdated'); return; }
   const room = getRoom(code);
-  if (room.peers.size >= MAX_RATS) { ws.close(4000, 'full'); return; }
-  const id = String(nextId++);
-  const peer: Peer = { ws, id, name, room, queue: [], last: { ...EMPTY_INPUT }, alive: true, profile: store.profile(acct, name), transAt: 0, ignoreBelow: 0, net: { rtt: -1, pingAt: 0, inPk: 0, inSeq: 0, lastInAt: Date.now(), stalls: 0, maxQ: 0, since: Date.now(), ip: String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim(), ua: shortUa(String(req.headers['user-agent'] ?? '')) } };
+  const ghost = room.ghosts.get(acct); if (ghost) room.ghosts.delete(acct);
+  if (!ghost && room.peers.size >= MAX_RATS) { ws.close(4000, 'full'); return; }
+  const id = ghost?.id ?? String(nextId++);
+  const peer: Peer = { ws, id, name, room, queue: [], last: { ...EMPTY_INPUT }, alive: true, profile: store.profile(acct, name), transAt: 0, ignoreBelow: 0, net: { rtt: -1, pingAt: 0, inPk: 0, inSeq: 0, lastInAt: Date.now(), lastMsgAt: Date.now(), stalls: 0, maxQ: 0, since: Date.now(), ip: String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim(), ua: shortUa(String(req.headers['user-agent'] ?? '')) } };
   room.peers.set(id, peer);
   if (!room.hostId) room.hostId = id;
-  console.log(`+ ${name} (#${id}) → ${code} [${room.peers.size}] ${peer.net.ip} ${peer.net.ua}`);
+  console.log(`+ ${name} (#${id}) → ${code} [${room.peers.size}] ${peer.net.ip} ${peer.net.ua}${ghost ? ' (вернулась к своей крысе)' : ''}`);
   send(ws, { t: 'welcome', id, tickHz: TICK_HZ, version: VERSION });
   send(ws, noraMsg(room)); send(ws, meMsg(peer.profile));
   if (room.phase !== 'raid') addRat(room.nora, id, name, peerMods(peer));
   // опоздавший в идущую Вылазку — заходит крысой у входа
-  if (room.phase === 'raid' && room.world) { addRat(room.world, id, name, peerMods(peer)); send(ws, { t: 'raid', map: room.world.map, seed: room.seed, mods: room.world.mods, ratMods: Object.fromEntries([...room.world.rats.values()].map((r) => [r.id, r.mods])) }); }
+  if (room.phase === 'raid' && room.world) { if (!room.world.rats.has(id)) addRat(room.world, id, name, peerMods(peer)); else peer.transAt = Date.now(); send(ws, { t: 'raid', map: room.world.map, seed: room.seed, mods: room.world.mods, ratMods: Object.fromEntries([...room.world.rats.values()].map((r) => [r.id, r.mods])) }); }
   broadcast(room, lobbyMsg(room));
 
   ws.on('message', (data) => {
     let m: any; try { m = JSON.parse(String(data)); } catch { return; }
+    peer.alive = true; peer.net.lastMsgAt = Date.now();
     switch (m.t) {
       case 'i': {
         peer.net.inPk++; peer.net.inSeq += (m.inputs as Input[]).length; peer.net.lastInAt = Date.now(); if (peer.queue.length > peer.net.maxQ) peer.net.maxQ = peer.queue.length;
@@ -151,9 +157,10 @@ wss.on('connection', (ws, req) => {
     const n = peer.net; console.log(`- ${name} (#${id}) ← ${code} [${room.peers.size - 1}] close=${ccode}${creason?.length ? ' ' + creason : ''} ${Math.round((Date.now() - n.since) / 1000)}s rtt=${n.rtt}ms stalls=${n.stalls} maxQ=${n.maxQ}`);
     room.peers.delete(id);
     room.nora.rats.delete(id);
-    if (room.world) { const r = room.world.rats.get(id); if (r && !r.exited) { r.dead = true; } }
+    // в Вылазке крыса не умирает сразу: GHOST_MS ждёт переподключения того же аккаунта (мобильная сеть, VPN, троттлинг)
+    if (room.phase === 'raid' && room.world) { const r = room.world.rats.get(id); if (r && !r.exited && !r.dead) room.ghosts.set(acct, { id, name, until: Date.now() + GHOST_MS }); }
     if (room.hostId === id) room.hostId = room.peers.keys().next().value ?? null;
-    if (!room.peers.size) rooms.delete(code); else broadcast(room, lobbyMsg(room));
+    if (!room.peers.size && !room.ghosts.size) rooms.delete(code); else broadcast(room, lobbyMsg(room)); // пока есть призраки, комната живёт — иначе вернувшемуся некуда
   });
   ws.on('pong', () => { peer.alive = true; if (peer.net.pingAt) peer.net.rtt = Math.round(performance.now() - peer.net.pingAt); });
 });
@@ -206,6 +213,7 @@ setInterval(() => {
   while (acc >= TICK) {
     acc -= TICK; tpsCount++;
     for (const room of rooms.values()) {
+      if (!room.peers.size && !room.ghosts.size) { rooms.delete(room.code); continue; }
       if (room.phase === 'results') { room.phaseLeft -= TICK; if (room.phaseLeft <= 0) toLobby(room); continue; }
       if (room.phase === 'lobby') { // Нора: крысы бегают, мир без NPC
         const w = room.nora; w.tick++;
@@ -234,6 +242,7 @@ setInterval(() => {
         inputs.set(p.id, input);
       }
       stepWorld(w, inputs);
+      for (const [acct, g] of room.ghosts) { const r = w.rats.get(g.id); if (!r || r.dead || r.exited) { room.ghosts.delete(acct); continue; } if (Date.now() > g.until) { r.dead = true; room.ghosts.delete(acct); console.log(`☠ ${g.name}: не вернулась за ${GHOST_MS / 1000} с`); continue; } stepRat(w.level, r, EMPTY_INPUT, [], w.mods.slippery, w.mods.sticky); }
       if (w.tick % SNAP_EVERY === 0) broadcast(room, { t: 's', ...snapWorld(w), ev: w.events });
       else if (w.events.length) broadcast(room, { t: 'ev', ev: w.events });
       if (w.over) endRaid(room);
@@ -244,7 +253,7 @@ setInterval(() => {
 // зомби-соединения: ws ping каждые 10 с
 setInterval(() => {
   for (const room of rooms.values()) for (const p of room.peers.values()) {
-    if (!p.alive) { p.ws.terminate(); continue; }
+    if (!p.alive && Date.now() - p.net.lastMsgAt > 30_000) { console.log(`✂ ${p.name}: 30 с тишины — обрываем`); p.ws.terminate(); continue; }
     p.alive = false; p.net.pingAt = performance.now(); p.ws.ping();
   }
 }, 10_000);
