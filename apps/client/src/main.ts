@@ -333,8 +333,8 @@ app.ticker.add(() => {
         if (key !== lastPocketsKey) {
           lastPocketsKey = key;
           let cells = ''; let used = 0;
-          for (const k of meS.pk) { const kd = KINDS[k]; used += kd.size; cells += `<span class="full t-${kd.type}" style="width:${36 * kd.size + 3 * (kd.size - 1)}px"><img src="${itemIcon(k, 3)}" alt="${kd.name}" title="${kd.name}"/><i>${kd.name}</i></span>`; }
-          for (let i = used; i < RULES.pockets; i++) cells += '<span></span>';
+          for (const k of meS.pk) { const kd = KINDS[k]; used += kd.size; cells += `<span class="full t-${kd.type}" style="height:${26 * kd.size + 2 * (kd.size - 1)}px"><img src="${itemIcon(k, 3)}" alt="${kd.name}"/><i>${kd.name}</i>${kd.size > 1 ? `<em>×${kd.size}</em>` : ''}</span>`; }
+          for (let i = used; i < RULES.pockets; i++) cells += '<span><em>пусто</em></span>';
           $('pockets').innerHTML = cells;
         }
         $('info').textContent = `${meS.dn ? `лежишь ${meS.dl.toFixed(0)} с · ` : ''}${meS.ex ? 'вынесла · ' : ''}${meS.dd ? 'погибла · ' : ''}ping ${net.rtt} · ${Math.round(app.ticker.FPS)} fps`;
