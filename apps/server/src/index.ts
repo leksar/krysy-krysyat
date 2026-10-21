@@ -15,7 +15,7 @@ const store = new Store(DB_PATH);
 process.on('SIGTERM', () => { store.flush(); process.exit(0); });
 process.on('SIGINT', () => { store.flush(); process.exit(0); });
 
-type Peer = { ws: WebSocket; id: string; name: string; room: Room; queue: Input[]; last: Input; alive: boolean; profile: Profile };
+type Peer = { ws: WebSocket; id: string; name: string; room: Room; queue: Input[]; last: Input; alive: boolean; profile: Profile; transAt: number; ignoreBelow: number };
 type Room = { code: string; peers: Map<string, Peer>; hostId: string | null; map: string; phase: Phase; world: World | null; nora: World; phaseLeft: number; seed: number; pour: number[] };
 const rooms = new Map<string, Room>();
 let nextId = 1;
@@ -71,7 +71,7 @@ wss.on('connection', (ws, req) => {
   const room = getRoom(code);
   if (room.peers.size >= MAX_RATS) { ws.close(4000, 'full'); return; }
   const id = String(nextId++);
-  const peer: Peer = { ws, id, name, room, queue: [], last: { ...EMPTY_INPUT }, alive: true, profile: store.profile(acct, name) };
+  const peer: Peer = { ws, id, name, room, queue: [], last: { ...EMPTY_INPUT }, alive: true, profile: store.profile(acct, name), transAt: 0, ignoreBelow: 0 };
   room.peers.set(id, peer);
   if (!room.hostId) room.hostId = id;
   console.log(`+ ${name} (#${id}) → ${code} [${room.peers.size}]`);
@@ -88,8 +88,10 @@ wss.on('connection', (ws, req) => {
       case 'i': {
         for (const i of m.inputs as Input[]) {
           if (typeof i.seq !== 'number') continue;
+          // 500 мс после смены фазы вход закрыт: хвост пакетов прошлой фазы (в полёте ≤ RTT) не доходит до нового мира
+          if (Date.now() - peer.transAt < 500) continue;
           let newest = peer.queue.length ? peer.queue[peer.queue.length - 1].seq : peer.last.seq;
-          if (i.seq + 200 < newest) { peer.queue = []; peer.last = { ...peer.last, seq: i.seq - 1 }; newest = i.seq - 1; } // клиент сбросил счётчик (старая страница) — принимаем заново
+          if (i.seq + 200 < newest) { peer.queue = []; peer.last = { ...peer.last, seq: i.seq - 1 }; newest = i.seq - 1; } // клиент сбросил счётчик — принимаем заново
           if (i.seq <= newest) continue;
           if (peer.queue.length > 60) break;
           peer.queue.push({ seq: i.seq, moveX: clamp(Number(i.moveX) || 0, -1, 1), jump: !!i.jump, jumpHeld: !!i.jumpHeld, bite: !!i.bite, act: !!i.act, actHeld: !!i.actHeld });
@@ -156,6 +158,8 @@ wss.on('connection', (ws, req) => {
 
 /** Крыса стоит у станции Норы (сервер не верит клиенту на слово) */
 function at(p: Peer, id: StationId): boolean { if (p.room.phase !== 'lobby') return false; const r = p.room.nora.rats.get(p.id); return !!r && stationAt(r.x, r.y)?.id === id; }
+/** Смена фазы: счётчик подтверждений с нуля, хвост прошлой фазы игнорируется 2 с — работает и со старым клиентом (сброс в 1), и с новым (монотонный) */
+function transition(p: Peer) { p.ignoreBelow = Math.max(p.last.seq, ...p.queue.map((q) => q.seq)); p.transAt = Date.now(); p.queue = []; p.last = { ...EMPTY_INPUT }; }
 function peerMods(p: Peer) { const m = ratMods(p.profile.dna, p.profile.mut); m.pockets += p.profile.pockets; return m; }
 function startRaid(room: Room) {
   room.seed = (room.seed * 1103515245 + 12345) | 0;
@@ -167,7 +171,7 @@ function startRaid(room: Room) {
   if (poured.length) { store.log(`${room.code}: вылито ${poured.length} — ${mods.names.join(', ')}`); store.save(); pushNora(); }
   const w = createWorld(room.map, room.seed, mods);
   // номер последнего инпута сохраняем: пакеты из Норы ещё в полёте, сброс в 0 заблокировал бы ввод до догона счётчика
-  for (const p of room.peers.values()) { addRat(w, p.id, p.name, peerMods(p)); p.queue = []; p.last = { ...EMPTY_INPUT, seq: p.last.seq }; }
+  for (const p of room.peers.values()) { addRat(w, p.id, p.name, peerMods(p)); transition(p); }
   room.world = w; room.phase = 'raid';
   broadcast(room, { t: 'raid', map: w.map, seed: room.seed, mods, ratMods: Object.fromEntries([...w.rats.values()].map((r) => [r.id, r.mods])) });
   console.log(`▶ ${room.code}: ${w.map} with ${room.peers.size} rats`);
@@ -185,7 +189,7 @@ function endRaid(room: Room) {
 }
 function toLobby(room: Room) {
   room.phase = 'lobby'; room.world = null; room.nora = createNoraWorld();
-  for (const p of room.peers.values()) { addRat(room.nora, p.id, p.name, peerMods(p)); p.queue = []; p.last = { ...EMPTY_INPUT, seq: p.last.seq }; }
+  for (const p of room.peers.values()) { addRat(room.nora, p.id, p.name, peerMods(p)); transition(p); }
   broadcast(room, lobbyMsg(room));
 }
 function clamp(v: number, a: number, b: number) { return Math.max(a, Math.min(b, v)); }

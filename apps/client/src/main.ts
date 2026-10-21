@@ -534,7 +534,10 @@ app.ticker.add(() => {
     else if (me.act > 0) v.bar.rect(0, -6, 14 * me.act, 2).fill(0x7fd3ff);
     if (me.water) v.bar.circle(16, -4, 2).fill(0x7fd3ff);
     camX = rx; camY = ry;
-    if (me.exited || me.dead) { const alive = s1?.rats.find((r) => !r.dd && !r.ex && r.id !== myId); if (alive) { camX = alive.x; camY = alive.y; } }
+    if (me.exited || me.dead) { // зритель: камера за живой крысой, интерполированной между снапшотами (иначе дёргается)
+      const a1 = s1?.rats.find((r) => !r.dd && !r.ex && r.id !== myId);
+      if (a1) { const a0 = s0?.rats.find((r) => r.id === a1.id) ?? a1; camX = a0.x + (a1.x - a0.x) * t; camY = a0.y + (a1.y - a0.y) * t; }
+    }
   }
   if (s1) {
     for (const r1 of s1.rats) {
