@@ -51,10 +51,10 @@ function lobbyMsg(room: Room) {
 function noraMsg() {
   const n = store.nora;
   const builds: Record<string, unknown> = {};
-  { const b = BUILD_INFO.cauldron; const lvl = n.builds.cauldron; builds.cauldron = { name: b.name, desc: b.desc, level: lvl, max: b.max, cost: lvl < b.max ? b.cost(lvl) : null }; }
+  for (const k of ['cauldron', 'shelf', 'rack'] as (keyof Builds)[]) { const b = BUILD_INFO[k]; const lvl = n.builds[k]; builds[k] = { name: b.name, desc: b.desc(lvl), level: lvl, max: b.max, cost: lvl < b.max ? b.cost(lvl) : null, requires: b.requires && !store.built(b.requires) ? BUILD_INFO[b.requires].name : null }; }
   return { t: 'nora', stash: n.stash, potions: n.potions, cauldron: store.cauldronSize(), builds, log: n.log.slice(-8) };
 }
-function meMsg(p: Profile) { const b = BUILD_INFO.pockets; return { t: 'me', name: p.name, code: p.code, dna: p.dna, mut: p.mut, raids: p.raids, banked: p.banked, mods: (() => { const m = ratMods(p.dna, p.mut); m.pockets += p.pockets; return m; })(), pockets: { level: p.pockets, max: b.max, cost: p.pockets < b.max ? b.cost(p.pockets) : null } }; }
+function meMsg(p: Profile) { const b = BUILD_INFO.pockets; return { t: 'me', name: p.name, code: p.code, dna: p.dna, mut: p.mut, raids: p.raids, banked: p.banked, mods: (() => { const m = ratMods(p.dna, p.mut); m.pockets += p.pockets; return m; })(), pockets: { level: p.pockets, max: b.max, cost: p.pockets < b.max ? b.cost(p.pockets) : null, desc: b.desc(p.pockets) } }; }
 function broadcastAll(o: unknown) { const s = JSON.stringify(o); for (const room of rooms.values()) for (const p of room.peers.values()) if (p.ws.readyState === p.ws.OPEN) p.ws.send(s); }
 function pushNora() { broadcastAll(noraMsg()); }
 
@@ -101,19 +101,20 @@ wss.on('connection', (ws, req) => {
       // --- Нора ---
       case 'brew': {
         if (!at(peer, 'cauldron')) { send(ws, { t: 'err', text: 'Подойди к Котлу' }); break; }
+        if (!store.built('cauldron')) { send(ws, { t: 'err', text: 'Котёл ещё не построен' }); break; }
         const kinds: string[] = Array.isArray(m.kinds) ? m.kinds.filter((k: unknown) => typeof k === 'string' && KINDS[k]).slice(0, store.cauldronSize()) : [];
         if (kinds.length < 2) { send(ws, { t: 'err', text: 'В Котёл нужно хотя бы 2 Ингредиента' }); break; }
         if (!store.take(kinds)) { send(ws, { t: 'err', text: 'На Складе столько нет' }); break; }
         const pot = brew(store.nora.nextPotion++, kinds); store.nora.potions.push(pot); store.log(`${peer.name} сварила Зелье #${pot.id}`); store.save(); pushNora(); break;
       }
       case 'pour': {
-        if (peer.id !== room.hostId || room.phase !== 'lobby' || !at(peer, 'shelf')) break;
+        if (peer.id !== room.hostId || room.phase !== 'lobby' || !at(peer, 'shelf') || !store.built('shelf')) break;
         const id = Number(m.id); if (!store.nora.potions.some((p) => p.id === id)) break;
         if (room.pour.includes(id)) room.pour = room.pour.filter((x) => x !== id); else if (room.pour.length < 2) room.pour.push(id);
         broadcast(room, lobbyMsg(room)); break;
       }
       case 'drink': {
-        if (!at(peer, 'shelf')) { send(ws, { t: 'err', text: 'Подойди к полке' }); break; }
+        if (!at(peer, 'shelf') || !store.built('shelf')) { send(ws, { t: 'err', text: 'Подойди к построенной Полке' }); break; }
         const id = Number(m.id); const i = store.nora.potions.findIndex((p) => p.id === id); if (i < 0) break;
         const pot = store.nora.potions.splice(i, 1)[0];
         for (const r of rooms.values()) r.pour = r.pour.filter((x) => x !== id);
@@ -123,7 +124,8 @@ wss.on('connection', (ws, req) => {
       }
       case 'build': {
         const k = m.what as keyof Builds; const b = BUILD_INFO[k]; if (!b) break;
-        if (!at(peer, k === 'pockets' ? 'rack' : 'cauldron')) { send(ws, { t: 'err', text: 'Подойди к постройке' }); break; }
+        if (!at(peer, k === 'pockets' ? 'rack' : k)) { send(ws, { t: 'err', text: 'Подойди к стройплощадке' }); break; }
+        if (b.requires && !store.built(b.requires)) { send(ws, { t: 'err', text: `Сначала построй: ${BUILD_INFO[b.requires].name}` }); break; }
         if (k === 'pockets') { // личная постройка крысы за общие Ингредиенты
           const lvl = peer.profile.pockets; if (lvl >= b.max) break;
           if (!store.payByType(b.cost(lvl))) { send(ws, { t: 'err', text: 'Не хватает Ингредиентов' }); break; }

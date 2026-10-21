@@ -1,5 +1,5 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
-import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER, PILE, CAULDRON, SHELF, TABLE, RACK, TUNNEL, type SpriteDef } from './sprites';
 import { generateLevel, noraLevel, NORA_STATIONS, stationAt, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, PROPS, BASE_MODS, BASE_RAID, MUTATION_NAMES, MUTATION_DESC, MODIFIER_NAMES, MODIFIER_DESC, dominant, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event, type Potion, type RatMods, type RaidMods, type DNA, type Mutations, type Prop, type StationId } from '@krysy/sim';
 import { Touch } from './input';
@@ -22,8 +22,9 @@ let phase: 'join' | 'lobby' | 'raid' | 'results' = 'join';
 let selectedMap = 'yard';
 let raidModsCur: RaidMods = BASE_RAID;
 let ratModsById: Record<string, RatMods> = {};
-type NoraMsg = { stash: Record<string, number>; potions: Potion[]; cauldron: number; builds: Record<string, { name: string; desc: string; level: number; max: number; cost: Record<string, number> | null }>; log: string[] };
-type MeMsg = { name: string; code: string; dna: DNA; mut: Mutations; raids: number; banked: number; mods: RatMods; pockets: { level: number; max: number; cost: Record<string, number> | null } };
+type BuildInfo = { name: string; desc: string; level: number; max: number; cost: Record<string, number> | null; requires?: string | null };
+type NoraMsg = { stash: Record<string, number>; potions: Potion[]; cauldron: number; builds: Record<string, BuildInfo>; log: string[] };
+type MeMsg = { name: string; code: string; dna: DNA; mut: Mutations; raids: number; banked: number; mods: RatMods; pockets: { level: number; max: number; cost: Record<string, number> | null; desc: string } };
 let nora: NoraMsg | null = null, meInfo: MeMsg | null = null;
 let cauldron: string[] = [];
 // аккаунт: секретный код живёт в телефоне
@@ -115,16 +116,42 @@ function updateStations() {
   const host = lobby?.hostId === myId;
   const total = nora ? Object.values(nora.stash).reduce((s, n) => s + n, 0) : 0;
   const sv = (id: StationId) => stationViews.get(id)!;
-  sv('stash').sub.text = total ? `${total} шт.` : 'пусто';
-  sv('stash').sp.scale.set(total ? Math.min(2.2, 1 + total / 40) : 0.7);
-  sv('cauldron').sub.text = nora ? `${nora.cauldron} слота` : '';
-  sv('shelf').sub.text = nora ? (nora.potions.length ? `Зелий: ${nora.potions.length}` : 'пусто') : '';
+  // Склад — растущая куча посреди норы
+  { const v = sv('stash'); v.sp.visible = false; const g = v.extra; g.clear(); drawPile(g, nora?.stash ?? {}, (NORA_STATIONS[2].c1 - NORA_STATIONS[2].c0 + 1) * TILE); v.sub.text = total ? `${total} шт.` : 'пусто — неси добычу'; v.label.position.y = TILE - pileHeight(total) - 4; }
+  // стройплощадки: пока не построено — пунктир и табличка с ценой
+  const site = (id: StationId, b: BuildInfo | undefined, w: number) => {
+    const v = sv(id); const built = (b?.level ?? 0) > 0; v.sp.visible = built; v.extra.clear();
+    if (!built) { v.extra.rect(2, -18, w - 4, 32).stroke({ width: 1, color: 0x8a7a5a, alpha: 0.8 }); v.extra.rect(w / 2 - 10, -4, 20, 12).fill(0x3a2a1a); v.label.text = `${b?.name ?? ''}: стройка`; }
+    else v.label.text = b?.name ?? '';
+    return built;
+  };
+  const cb = site('cauldron', nora?.builds.cauldron, 5 * TILE);
+  sv('cauldron').sub.text = cb ? `${nora!.cauldron} слота` : nora?.builds.cauldron?.cost ? costHtml(nora.builds.cauldron.cost).replace(/, /g, ' · ') : '';
+  const sb = site('shelf', nora?.builds.shelf, 6 * TILE);
+  sv('shelf').sub.text = sb ? (nora!.potions.length ? `Зелий: ${nora!.potions.length}` : 'пусто') : nora?.builds.shelf?.requires ? `нужен ${nora.builds.shelf.requires}` : nora?.builds.shelf?.cost ? costHtml(nora.builds.shelf.cost).replace(/, /g, ' · ') : '';
+  const rb = site('rack', nora?.builds.rack, 5 * TILE);
+  sv('rack').sub.text = rb ? (meInfo ? `мои сумки: ${meInfo.pockets.level}/${meInfo.pockets.max}` : '') : nora?.builds.rack?.requires ? `нужен ${nora.builds.rack.requires}` : nora?.builds.rack?.cost ? costHtml(nora.builds.rack.cost).replace(/, /g, ' · ') : '';
   sv('table').sub.text = lobby ? `${MAPS[lobby.map]?.name ?? lobby.map}${lobby.pour.length ? ` + Зелья ${lobby.pour.map((i) => '#' + i).join(',')}` : ''}` : '';
-  sv('rack').sub.text = meInfo ? `мои: ${meInfo.pockets.level}/${meInfo.pockets.max}` : '';
   sv('tunnel').sub.text = host ? 'ДЕЙСТ. — в Вылазку' : 'откроет хозяин';
-  // бутылки на полке
-  const g = sv('shelf').extra; g.clear();
-  if (nora) for (let i = 0; i < Math.min(8, nora.potions.length); i++) g.roundRect(6 + i * 11, 2, 6, 11, 2).fill([0x7fd3ff, 0xa0e070, 0xe07070, 0xe8d070][i % 4]);
+  if (sb) { const g = sv('shelf').extra; for (let i = 0; i < Math.min(8, nora!.potions.length); i++) g.roundRect(6 + i * 11, 2, 6, 11, 2).fill([0x7fd3ff, 0xa0e070, 0xe07070, 0xe8d070][i % 4]); }
+}
+function pileHeight(total: number) { return Math.min(44, 6 + total * 0.5); }
+/** Куча добычи: холм, высота и ширина от количества, сверху — предметы по видам */
+function drawPile(g: Graphics, stash: Record<string, number>, areaW: number) {
+  const total = Object.values(stash).reduce((s, n) => s + n, 0);
+  if (!total) { g.ellipse(areaW / 2, TILE - 2, 10, 3).fill(0x2a1e14); return; }
+  const h = pileHeight(total), w = Math.min(areaW - 8, 40 + total * 1.4), cx = areaW / 2, base = TILE;
+  g.moveTo(cx - w / 2, base).quadraticCurveTo(cx - w / 4, base - h * 0.9, cx, base - h).quadraticCurveTo(cx + w / 4, base - h * 0.9, cx + w / 2, base).closePath().fill(0x4a3626);
+  g.moveTo(cx - w / 3, base).quadraticCurveTo(cx - w / 8, base - h * 0.7, cx + w / 10, base - h * 0.8).quadraticCurveTo(cx + w / 4, base - h * 0.6, cx + w / 3, base).closePath().fill(0x5c4530);
+  // предметы: раскиданы по холму, цвет по виду, количество ограничено
+  const kinds = Object.entries(stash).filter(([, n]) => n > 0); let i = 0;
+  for (const [k, n] of kinds) for (let j = 0; j < Math.min(n, 6); j++, i++) {
+    if (i > 40) break;
+    const t = ((i * 7919) % 97) / 97, u = ((i * 104729) % 89) / 89;
+    const px = cx + (t - 0.5) * w * 0.9, py = base - (h - 3) * (1 - Math.abs(t - 0.5) * 2) * (0.3 + u * 0.7);
+    const col = KINDS[k]?.type === 'food' ? 0xe0b060 : KINDS[k]?.type === 'trash' ? 0xa0a0a8 : KINDS[k]?.type === 'secr' ? 0x80c8e8 : 0xe05070;
+    g.rect(Math.round(px), Math.round(py), 3, 3).fill(col);
+  }
 }
 function stationHere(): StationId | null { return me && phase === 'lobby' ? stationAt(me.x, me.y)?.id ?? null : null; }
 
@@ -148,6 +175,7 @@ function renderSheet() {
       html += stashEntries.length ? `<div>${stashEntries.map(([k, n]) => chip(k, n)).join('')}</div><div class="muted">Неси Ингредиенты в Котёл — он рядом.</div>` : '<div class="muted">Пусто. Всё, что вынесете с Вылазки через Выход, ляжет сюда.</div>';
       break;
     case 'cauldron': {
+      if (!(nora.builds.cauldron?.level > 0)) { const b = nora.builds.cauldron; html += `<div class="build"><b>Стройплощадка: Котёл</b> <span class="muted">— ${b.desc}. Цена: ${costHtml(b.cost)}</span> <button class="small primary" data-build="cauldron">Построить</button></div><div class="muted">Склад: ${stashEntries.map(([k, n]) => `${KINDS[k].name} ×${n}`).join(', ') || 'пусто'}</div>`; break; }
       let slots = ''; for (let i = 0; i < nora.cauldron; i++) slots += `<span class="slot" data-i="${i}">${cauldron[i] ? `<img src="${itemIcon(cauldron[i])}"/>` : ''}</span>`;
       const preview = cauldron.length >= 2 ? propsHtml({ id: 0, from: cauldron, props: cauldron.reduce((acc: Record<string, number>, k) => { for (const pr of (ITEM_PROPS_LOCAL[k] ?? [])) acc[pr] = (acc[pr] ?? 0) + 1; return acc; }, {}) as Potion['props'] }) : '';
       const d = cauldron.length >= 2 ? dominant({ id: 0, from: cauldron, props: cauldron.reduce((acc: Record<string, number>, k) => { for (const pr of (ITEM_PROPS_LOCAL[k] ?? [])) acc[pr] = (acc[pr] ?? 0) + 1; return acc; }, {}) as Potion['props'] }) : null;
@@ -158,6 +186,7 @@ function renderSheet() {
       break;
     }
     case 'shelf':
+      if (!(nora.builds.shelf?.level > 0)) { const b = nora.builds.shelf; html += `<div class="build"><b>Стройплощадка: Полка Зелий</b> <span class="muted">— ${b.desc}. Цена: ${costHtml(b.cost)}${b.requires ? ` · сначала: ${b.requires}` : ''}</span> ${b.requires ? '' : '<button class="small primary" data-build="shelf">Построить</button>'}</div>`; break; }
       html += nora.potions.length ? nora.potions.map((p) => `<div class="potion ${lobby?.pour.includes(p.id) ? 'pour' : ''}"><b>Зелье #${p.id}</b> ${propsHtml(p)}<div class="muted" style="font-size:11px">из: ${p.from.map((k) => KINDS[k].name).join(', ')}${dominant(p) ? ` · выпить → ${MUTATION_NAMES[dominant(p)!]} · вылить → ${PROPS.filter((x) => p.props[x]).map((x) => MODIFIER_NAMES[x]).join(', ')}` : ''}</div><div class="row"><button class="small" data-drink="${p.id}">Выпить</button>${host ? `<button class="small" data-pour="${p.id}">${lobby?.pour.includes(p.id) ? 'Снять со стола' : 'На стол — вылить на карту'}</button>` : ''}</div></div>`).join('') : '<div class="muted">Полка пуста — свари Зелье в Котле.</div>';
       if (meInfo) {
         const muts = PROPS.filter((p) => meInfo!.mut[p]).map((p) => `<span class="props"><span>🧬 ${MUTATION_NAMES[p]} ${meInfo!.mut[p]}</span></span>`).join(' ');
@@ -170,6 +199,7 @@ function renderSheet() {
       html += `<div class="muted">${lobby?.pour.length ? `На карту выльем: ${lobby.pour.map((i) => '#' + i).join(', ')} → ${raidPreview()}` : 'Зелья на карту кладутся с Полки.'}</div><div class="muted">Когда готовы — все к Туннелю справа.</div>`;
       break;
     case 'rack': {
+      if (!(nora.builds.rack?.level > 0)) { const b = nora.builds.rack; html += `<div class="build"><b>Стройплощадка: Стойка Карманов</b> <span class="muted">— ${b.desc}. Цена: ${costHtml(b.cost)}${b.requires ? ` · сначала: ${b.requires}` : ''}</span> ${b.requires ? '' : '<button class="small primary" data-build="rack">Построить</button>'}</div>`; break; }
       const pb = meInfo?.pockets;
       html += pb ? `<div class="build"><b>Карманы ${esc(meInfo!.name)}</b> ${pb.level}/${pb.max} <span class="muted">— личная постройка: +1 ячейка только этой крысе, платит Стая со Склада. Цена: ${costHtml(pb.cost)}</span> ${pb.cost ? `<button class="small" data-build="pockets">Сшить сумку</button>` : ''}</div><div class="muted">Сейчас у тебя карманов: ${RULES.pockets + (meInfo?.mods.pockets ?? 0)}</div>` : '';
       break;
@@ -279,8 +309,26 @@ function onEvent(e: Event) {
 // ---------- рендер ----------
 const app = new Application();
 await app.init({ canvas: $('game') as HTMLCanvasElement, resizeTo: window, background: '#1a1612', antialias: false, resolution: Math.min(2, devicePixelRatio || 1), autoDensity: true, roundPixels: true });
+const bgStage = new Container(); app.stage.addChild(bgStage); // параллакс-фон (сгенерированные слои), экранные координаты
 const stage = new Container(); app.stage.addChild(stage);
 let levelSprite: Sprite | null = null;
+// слои параллакса по темам: имя файла и скорость относительно камеры
+const PARALLAX: Record<string, [string, number][]> = { yard: [['yard_far', 0.12], ['yard_mid', 0.4], ['yard_near', 0.75]] };
+let bgLayers: { sp: TilingSprite; speed: number }[] = [];
+let bgGen = 0;
+async function buildBackdrop(themeId: string) {
+  const gen = ++bgGen;
+  for (const l of bgLayers) l.sp.destroy(); bgLayers = [];
+  for (const [name, speed] of PARALLAX[themeId] ?? []) {
+    try {
+      const t: Texture = await Assets.load(`${import.meta.env.BASE_URL}bg/${name}.png`);
+      if (gen !== bgGen) return;
+      t.source.scaleMode = 'nearest';
+      const sp = new TilingSprite({ texture: t, width: 2000, height: t.height });
+      bgStage.addChild(sp); bgLayers.push({ sp, speed });
+    } catch (e) { console.warn('bg', name, e); }
+  }
+}
 const marks = new Container(); const ents = new Container(); const fxLayer = new Container();
 stage.addChild(marks, ents, fxLayer);
 
@@ -288,7 +336,8 @@ function buildLevel(l: Level, themeId: string) {
   const theme = THEMES[themeId] ?? THEMES.yard;
   app.renderer.background.color = theme.bg;
   if (levelSprite) { levelSprite.destroy({ texture: true }); }
-  const t = Texture.from(drawLevel(l.cols, l.rows, l.solid, theme)); t.source.scaleMode = 'nearest';
+  void buildBackdrop(themeId);
+  const t = Texture.from(drawLevel(l.cols, l.rows, l.solid, theme, !!PARALLAX[themeId])); t.source.scaleMode = 'nearest';
   levelSprite = new Sprite(t); stage.addChildAt(levelSprite, 0);
   for (const m of marks.children) m.destroy(); marks.removeChildren();
   for (const wtr of l.water) { const s = new Sprite(tex('water', WATER)); s.position.set(wtr.x, wtr.y); marks.addChild(s); }
@@ -486,5 +535,15 @@ app.ticker.add(() => {
   const cx = Math.max(0, Math.min(level.cols * TILE - app.screen.width / scale, camX + RAT_W / 2 - app.screen.width / scale / 2));
   const cy = Math.max(0, Math.min(level.rows * TILE - app.screen.height / scale, camY + RAT_H / 2 - app.screen.height / scale / 2));
   stage.position.set(-Math.round(cx * scale), -Math.round(cy * scale));
+  // параллакс: слои в экранных координатах, низ слоя — у низа уровня, сдвиг по камере со своей скоростью
+  if (bgLayers.length) {
+    bgStage.scale.set(scale);
+    const viewW = app.screen.width / scale, viewH = app.screen.height / scale, levelH = level.rows * TILE;
+    const cyMax = Math.max(0, levelH - viewH);
+    for (const { sp, speed } of bgLayers) {
+      sp.width = viewW + 2; sp.tilePosition.x = -cx * speed;
+      sp.y = viewH - sp.height + (cyMax - cy) * speed;
+    }
+  }
 });
 let lastPocketsKey: string | null = null;

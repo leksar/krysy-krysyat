@@ -215,13 +215,14 @@ export const THEMES: Record<string, TileTheme> = {
 };
 
 /** Рисует весь уровень в один canvas (≤ 1920×448) → одна текстура. */
-export function drawLevel(cols: number, rows: number, solid: Uint8Array, theme: TileTheme): HTMLCanvasElement {
+export function drawLevel(cols: number, rows: number, solid: Uint8Array, theme: TileTheme, transparent = false): HTMLCanvasElement {
   const cv = document.createElement('canvas'); cv.width = cols * 16; cv.height = rows * 16;
   const ctx = cv.getContext('2d')!;
-  // фон: окна/кирпичи
-  ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
-  ctx.fillStyle = theme.bgDeco;
-  for (let i = 0; i < cols * rows / 40; i++) { const x = (i * 97) % cv.width, y = (i * 53) % cv.height; ctx.fillRect(x, y, 10, 14); }
+  if (!transparent) { // фон: окна/кирпичи (если нет параллакса)
+    ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = theme.bgDeco;
+    for (let i = 0; i < cols * rows / 40; i++) { const x = (i * 97) % cv.width, y = (i * 53) % cv.height; ctx.fillRect(x, y, 10, 14); }
+  }
   const isSolid = (c: number, r: number) => c < 0 || r < 0 || c >= cols || r >= rows || solid[r * cols + c] === 1;
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     if (!solid[r * cols + c]) continue;

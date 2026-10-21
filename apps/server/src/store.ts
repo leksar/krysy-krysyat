@@ -4,13 +4,16 @@ import { dirname } from 'node:path';
 import { KINDS, PROPS, newDNA, type DNA, type Mutations, type Potion } from '@krysy/sim';
 
 export type Profile = { code: string; name: string; dna: DNA; mut: Mutations; created: number; raids: number; banked: number; pockets: number };
-export type Builds = { pockets: number; cauldron: number };
+export type Builds = { pockets: number; cauldron: number; shelf: number; rack: number }; // cauldron: 0 = не построен, 1 = 3 слота, 2–3 = +слот; shelf/rack: 0|1
 export type Nora = { stash: Record<string, number>; potions: Potion[]; nextPotion: number; builds: Builds; log: string[] };
 type Data = { profiles: Record<string, Profile>; nora: Nora };
 
-export const BUILD_INFO: Record<keyof Builds, { name: string; desc: string; max: number; cost: (lvl: number) => Record<'food' | 'trash' | 'secr' | 'organ', number> }> = {
-  pockets: { name: 'Карманы', desc: '+1 ячейка Карманов этой Крысе (личная постройка)', max: 3, cost: (l) => ({ food: 6 + 4 * l, trash: 6 + 4 * l, secr: 0, organ: 0 }) },
-  cauldron: { name: 'Котёл', desc: '+1 слот Котла (больше Ингредиентов в Зелье)', max: 2, cost: (l) => ({ food: 0, trash: 4, secr: 4 + 2 * l, organ: 1 + l }) },
+export type Cost = Record<'food' | 'trash' | 'secr' | 'organ', number>;
+export const BUILD_INFO: Record<keyof Builds, { name: string; desc: (lvl: number) => string; max: number; requires?: keyof Builds; cost: (lvl: number) => Cost }> = {
+  cauldron: { name: 'Котёл', desc: (l) => l === 0 ? 'построить Котёл: варить Зелья из 3 Ингредиентов' : `+1 слот Котла (${3 + l} Ингредиента в Зелье)`, max: 3, cost: (l) => l === 0 ? { food: 4, trash: 8, secr: 0, organ: 0 } : { food: 0, trash: 4, secr: 4 + 2 * l, organ: l } },
+  shelf: { name: 'Полка Зелий', desc: () => 'построить Полку: хранить Зелья, пить их и лить на карту', max: 1, requires: 'cauldron', cost: () => ({ food: 2, trash: 6, secr: 2, organ: 0 }) },
+  rack: { name: 'Стойка Карманов', desc: () => 'построить Стойку: шить сумки — личные Карманы каждой Крысе', max: 1, requires: 'cauldron', cost: () => ({ food: 0, trash: 6, secr: 0, organ: 1 }) },
+  pockets: { name: 'Карманы', desc: (l) => `+1 ячейка Карманов этой Крысе (сейчас +${l})`, max: 3, requires: 'rack', cost: (l) => ({ food: 6 + 4 * l, trash: 6 + 4 * l, secr: 0, organ: 0 }) },
 };
 
 export class Store {
@@ -20,7 +23,10 @@ export class Store {
     if (existsSync(path)) {
       try { this.data = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { console.error('store: битый файл, начинаем заново', e); this.data = fresh(); }
     } else this.data = fresh();
-    this.data.nora.builds ??= { pockets: 0, cauldron: 0 };
+    this.data.nora.builds ??= { pockets: 0, cauldron: 0, shelf: 0, rack: 0 };
+    const b = this.data.nora.builds; b.shelf ??= 0; b.rack ??= 0;
+    // миграция: раньше Котёл и Полка были сразу; если уже варили — считаем построенными
+    if (b.cauldron === 0 && (this.data.nora.potions.length || this.data.nora.log.some((l) => l.includes('сварила')))) { b.cauldron = 1; b.shelf = 1; }
     this.data.nora.log ??= [];
   }
   save() {
@@ -58,7 +64,8 @@ export class Store {
     for (const [t, n] of Object.entries(cost)) { let left = n; for (const [k, c] of byType(t)) { if (left <= 0) break; const d = Math.min(c, left); stash[k] -= d; left -= d; if (!stash[k]) delete stash[k]; } }
     this.save(); return true;
   }
-  cauldronSize() { return 3 + this.data.nora.builds.cauldron; }
+  cauldronSize() { return this.data.nora.builds.cauldron ? 2 + this.data.nora.builds.cauldron : 0; }
+  built(k: keyof Builds) { return this.data.nora.builds[k] > 0; }
 }
-function fresh(): Data { return { profiles: {}, nora: { stash: {}, potions: [], nextPotion: 1, builds: { pockets: 0, cauldron: 0 }, log: [] } }; }
+function fresh(): Data { return { profiles: {}, nora: { stash: {}, potions: [], nextPotion: 1, builds: { pockets: 0, cauldron: 0, shelf: 0, rack: 0 }, log: [] } }; }
 export const PROP_LIST = PROPS;
