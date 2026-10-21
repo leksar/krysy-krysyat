@@ -1,0 +1,187 @@
+{
+  "$comment": "Список промптов для gen.mjs / post.mjs. Поля item: id (имя файла), group (для --group), prompt, size (размер запроса к API), background ('transparent' | 'opaque'), target {w,h} (размер после даунскейла), colors (число цветов при квантовании), crop (необязательно: 'cover' — обрезать до пропорций target перед даунскейлом), kernel ('nearest' | 'lanczos3'). Поля из defaults применяются ко всем item, у которых они не заданы.",
+  "defaults": {
+    "model": "gpt-image-1.5",
+    "quality": "medium",
+    "size": "1024x1024",
+    "background": "transparent",
+    "colors": 16,
+    "kernel": "nearest",
+    "stylePrefix": "Pixel art for a 2D side-scrolling platformer, strict 16x16 pixel grid where every 'pixel' is a crisp uniform square block, flat colors, no anti-aliasing, no gradients, no blur, no lighting effects, limited palette of 16 colors, 1-pixel dark outline, side view (orthographic, no perspective), no text, no watermark, no signature, no frame, no drop shadow.",
+    "styleSuffix": "Dark comedic urban style of a game about rats living in a backyard dump and sneaking into a kitchen."
+  },
+  "items": [
+    {
+      "id": "kitchen_tileset",
+      "group": "tiles",
+      "prompt": "A tileset sheet for a KITCHEN level, laid out on a regular grid of 16 columns by 16 rows of equal square tiles, each tile isolated with transparent gaps between them. Contents, left-to-right, top-to-bottom: checkered beige-and-brown floor tiles with left/middle/right edge variants; pale tiled wall tiles with a grout line; a wooden kitchen counter top (platform) with left/middle/right pieces; lower cabinets with doors and handles; upper cabinets; a white gas stove with four burners and an oven door; a tall white refrigerator split into 2x3 tiles; a steel sink with a tap; a shelf with jars; a wooden table edge; a baseboard tile; a vent grille; a door frame; a window with night sky. Palette: cream, beige, light brown, dark brown, steel grey, white, teal accents, black outline.",
+      "size": "1024x1024",
+      "target": { "w": 256, "h": 256 },
+      "colors": 24,
+      "kernel": "nearest"
+    },
+    {
+      "id": "secretion_drop",
+      "group": "icons",
+      "prompt": "A single inventory icon of a rat's slimy green secretion: one glossy teardrop-shaped blob of toxic green goo with a single white highlight pixel, centered, filling about 80% of the canvas, isolated on a transparent background. Palette: 3 shades of acid green plus black outline and one white highlight.",
+      "size": "1024x1024",
+      "target": { "w": 16, "h": 16 },
+      "colors": 6
+    },
+    {
+      "id": "secretion_puddle",
+      "group": "icons",
+      "prompt": "A single inventory icon of a flat puddle of rat secretion: a wide, low oval splat of dark green slime with two small satellite drops, viewed from slightly above, centered, isolated on a transparent background. Palette: 3 shades of swamp green plus black outline.",
+      "size": "1024x1024",
+      "target": { "w": 16, "h": 16 },
+      "colors": 6
+    },
+    {
+      "id": "secretion_smear",
+      "group": "icons",
+      "prompt": "A single inventory icon of a brown rat dropping: a small dark brown pellet pile of three elongated pellets with tiny green stink wisps above, centered, isolated on a transparent background. Palette: 2 shades of dark brown, 1 pale green, black outline.",
+      "size": "1024x1024",
+      "target": { "w": 16, "h": 16 },
+      "colors": 6
+    },
+    {
+      "id": "rat_jump_1",
+      "group": "sprites",
+      "prompt": "A single sprite frame of a grey street rat, side view facing RIGHT, in a crouched take-off pose: hind legs bent and compressed, body coiled low, head slightly raised, tail curled behind, ready to leap. Fits a 32x32 pixel sprite box, rat body about 24 pixels wide and 12 pixels tall, isolated on a transparent background. Palette: 3 shades of grey fur, pink ears/nose/tail, a black eye, black outline.",
+      "size": "1024x1024",
+      "target": { "w": 32, "h": 32 },
+      "colors": 8
+    },
+    {
+      "id": "rat_jump_2",
+      "group": "sprites",
+      "prompt": "A single sprite frame of a grey street rat, side view facing RIGHT, in mid-air leap: body fully stretched horizontally, front paws extended forward, hind legs extended back, tail straight out behind, belly visible. Same character as a crouching take-off frame: 3 shades of grey fur, pink ears/nose/tail, a black eye, black outline. Fits a 32x32 pixel sprite box, isolated on a transparent background.",
+      "size": "1024x1024",
+      "target": { "w": 32, "h": 32 },
+      "colors": 8
+    },
+    {
+      "id": "human_panic_1",
+      "group": "sprites",
+      "prompt": "A single sprite frame of a chubby adult human in a stained white apron (a cook), side view facing LEFT, PANICKING: both arms thrown straight up, mouth wide open, eyes as big white circles, knees bent mid-run, one foot forward. Fits a 32x48 pixel sprite box, isolated on a transparent background. Palette: skin tone, white apron, dark blue trousers, brown hair, black outline, red mouth.",
+      "size": "1024x1536",
+      "target": { "w": 32, "h": 48 },
+      "colors": 10
+    },
+    {
+      "id": "human_panic_2",
+      "group": "sprites",
+      "prompt": "A single sprite frame of a chubby adult human cook in a stained white apron, side view facing LEFT, PANICKING, running frame two: arms up and bent at the elbows waving, legs crossed mid-stride, hair standing up, three sweat drops flying off the head. Same character design as other frames: skin tone, white apron, dark blue trousers, brown hair, black outline. Fits a 32x48 pixel sprite box, isolated on a transparent background.",
+      "size": "1024x1536",
+      "target": { "w": 32, "h": 48 },
+      "colors": 10
+    },
+    {
+      "id": "human_panic_3",
+      "group": "sprites",
+      "prompt": "A single sprite frame of a chubby adult human cook in a stained white apron, side view facing LEFT, PANICKING, running frame three: body leaning forward, arms flung back, long stride with both feet off the ground, mouth open screaming. Same character design as other frames: skin tone, white apron, dark blue trousers, brown hair, black outline. Fits a 32x48 pixel sprite box, isolated on a transparent background.",
+      "size": "1024x1536",
+      "target": { "w": 32, "h": 48 },
+      "colors": 10
+    },
+    {
+      "id": "bg_yard_far",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, FAR plane, for a BACKYARD DUMP level: a dusky evening sky with a few flat clouds and a low orange glow at the horizon, a silhouette skyline of five-storey Soviet panel apartment blocks with small lit windows, a distant water tower. Horizontally tileable (left and right edges match seamlessly). Wide 16:9 composition, no foreground objects, opaque background. Palette: muted purple-grey sky, dark blue-grey buildings, warm yellow window lights, 16 colors total.",
+      "size": "1536x1024",
+      "background": "opaque",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 16,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_yard_mid",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, MIDDLE plane, for a BACKYARD DUMP level: a long grey concrete fence with graffiti, a leafless tree, a rusty metal garage, a street lamp with a cone of light, a row of overflowing green dumpsters and black trash bags at the base. Everything sits on a ground line in the bottom 20% of the image; the upper area is fully TRANSPARENT so a sky layer shows through. Horizontally tileable. Wide 16:9 composition. Palette: grey concrete, rust brown, dull green, dark grey, 16 colors total.",
+      "size": "1536x1024",
+      "background": "transparent",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 16,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_yard_near",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, NEAR plane, for a BACKYARD DUMP level: sparse foreground details only - tufts of dry grass, a broken bottle, a crumpled newspaper, a puddle, a cardboard box, a bent bicycle wheel, all along the bottom 15% of the image; everything above is fully TRANSPARENT. Horizontally tileable. Wide 16:9 composition. Palette: dark grey, brown, dirty yellow, 12 colors total.",
+      "size": "1536x1024",
+      "background": "transparent",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 12,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_kitchen_far",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, FAR plane, for a KITCHEN level seen from inside the room: a pale cream tiled wall with a grout grid, a dark window with night outside and a hanging bare light bulb, a wall clock, a calendar. Opaque, horizontally tileable, wide 16:9 composition. Palette: cream, beige, light brown, dark blue window, warm yellow bulb, 16 colors total.",
+      "size": "1536x1024",
+      "background": "opaque",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 16,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_kitchen_mid",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, MIDDLE plane, for a KITCHEN level: a row of upper wooden cabinets along the top third, a shelf with jars and pots, a hanging ladle and pan, a fire extinguisher on the wall; the rest of the image fully TRANSPARENT. Horizontally tileable, wide 16:9 composition. Palette: light brown wood, steel grey, red extinguisher, 16 colors total.",
+      "size": "1536x1024",
+      "background": "transparent",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 16,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_kitchen_near",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, NEAR plane, for a KITCHEN level: foreground details only along the bottom 15% - a mop in a bucket, a crumpled paper bag, a dropped fork, crumbs, a cockroach; the rest fully TRANSPARENT. Horizontally tileable, wide 16:9 composition. Palette: grey, brown, steel, 12 colors total.",
+      "size": "1536x1024",
+      "background": "transparent",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 12,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_roof_far",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, FAR plane, for a ROOFTOP level at dusk: a big gradient-free sky in flat bands of deep blue, violet and orange, a thin crescent moon, a flat silhouette skyline of apartment blocks, TV antennas and a factory chimney with a trickle of smoke. Opaque, horizontally tileable, wide 16:9 composition. Palette: 4 flat sky bands, dark slate silhouettes, 16 colors total.",
+      "size": "1536x1024",
+      "background": "opaque",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 16,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_roof_mid",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, MIDDLE plane, for a ROOFTOP level: the tops of neighbouring roofs in the bottom 40% - tar paper, brick chimneys, ventilation pipes, a satellite dish, a clothes line with laundry, a water tank; everything above fully TRANSPARENT. Horizontally tileable, wide 16:9 composition. Palette: dark grey, brick red, rust, dull white laundry, 16 colors total.",
+      "size": "1536x1024",
+      "background": "transparent",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 16,
+      "kernel": "lanczos3"
+    },
+    {
+      "id": "bg_roof_near",
+      "group": "backgrounds",
+      "prompt": "Parallax background layer, NEAR plane, for a ROOFTOP level: foreground details only along the bottom 15% - a rusty railing segment, a roof edge with a gutter, a few pigeon feathers, a puddle on tar paper; the rest fully TRANSPARENT. Horizontally tileable, wide 16:9 composition. Palette: dark slate, rust, grey, 12 colors total.",
+      "size": "1536x1024",
+      "background": "transparent",
+      "crop": "cover",
+      "target": { "w": 480, "h": 270 },
+      "colors": 12,
+      "kernel": "lanczos3"
+    }
+  ]
+}

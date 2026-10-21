@@ -1,0 +1,18 @@
+{
+  "name": "gen-assets",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Генерация недостающих пиксель-арт ассетов через OpenAI Images API и пост-обработка (даунскейл, квантование, хромакей). См. README.md.",
+  "scripts": {
+    "dry": "node gen.mjs --dry-run",
+    "gen": "node gen.mjs",
+    "post": "node post.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "sharp": "^0.33.5"
+  }
+}
