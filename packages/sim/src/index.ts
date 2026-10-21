@@ -33,7 +33,7 @@ export const RULES = {
   exitTime: { '1': 5, '2': 5, '3': 1 } as Record<ExitType, number>,
   panicPerSec: 0.25, panicHuman: 1, panicKid: 4, panicKillP: 8, panicKillD: 10, panicKillK: 25, panicKillZ: 5,
   thresholds: { pigeons: 30, cat: 60, flock: 85 },
-  heavyMass: 3, heavySpeed: 70, carrySpeed: 0.8, carryJump: 0.9,
+  heavyMass: 2, heavySpeed: 70, carrySpeed: 0.8, carryJump: 0.9, // масса 2: одна крыса тянет вполсилы и берёт ступеньку в 1 тайл, две — в полную и ступеньку в 2
   lukInfected: 2, lukOpenPanic: 70, // Люк: ≥2 Заражённых Людей (или Переполох как запасной путь)
   drinkTime: 1, markTime: 0.6, eatTime: 1.5, infStage: 30, contagion: 0.05, pusEvery: 15,
 };
@@ -92,6 +92,7 @@ export type Rat = Body & {
   grab: number | null;      // тяжёлый предмет (размер 3), который крыса тащит
   dragMul: number;          // множитель скорости от тяжести (сервер считает, клиент повторяет)
   exitProg: number;         // прогресс выхода
+  climb?: boolean;          // тащит тяжёлое, но груз выше — можно прыгнуть следом
   banked: string[];         // вынесенное (после выхода)
   hits: number;
 };
@@ -235,6 +236,9 @@ function approach(v: number, target: number, step: number): number {
   if (v > target) return Math.max(v - step, target);
   return v;
 }
+/** Хват тяжёлого держится, пока крыса рядом по горизонтали и не дальше 2 тайлов по вертикали (груз запрыгнул на уступ — крыса лезет следом) */
+const nearHeavy = (r: Body, it: { x: number; y: number }) => r.x < it.x + HEAVY_W + 10 && r.x + r.w + 10 > it.x && Math.abs(r.y + r.h - (it.y + HEAVY_H)) <= 2 * TILE + 6;
+const sameLevel = (r: Body, it: { x: number; y: number }) => Math.abs(r.y + r.h - (it.y + HEAVY_H)) <= 12;
 const overlap = (a: Body, b: { x: number; y: number; w?: number; h?: number }, pad = 0) =>
   a.x < b.x + (b.w ?? 0) + pad && a.x + a.w + pad > b.x && a.y < b.y + (b.h ?? 0) + pad && a.y + a.h + pad > b.y;
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -278,7 +282,7 @@ export function stepRat(l: Level, r: Rat, input: Input, others: Body[] = [], sli
   r.bufferLeft = input.jump ? p.buffer : Math.max(0, r.bufferLeft - dt);
   r.biteLeft = Math.max(0, r.biteLeft - dt);
   r.biteCd = Math.max(0, r.biteCd - dt);
-  if (r.bufferLeft > 0 && (r.grounded || r.coyoteLeft > 0) && r.grab === null) { r.vy = -jumpVel; r.grounded = false; r.coyoteLeft = 0; r.bufferLeft = 0; } // с тяжёлым в лапах не прыгнешь
+  if (r.bufferLeft > 0 && (r.grounded || r.coyoteLeft > 0) && (r.grab === null || r.climb)) { r.vy = -jumpVel; r.grounded = false; r.coyoteLeft = 0; r.bufferLeft = 0; } // с тяжёлым в лапах не прыгнешь
   let g = p.gravity;
   if (r.vy > 0) g = p.fallGravity; else if (!input.jumpHeld) g = p.cutGravity;
   r.vy = Math.min(r.vy + g * dt, p.maxFall);
@@ -435,8 +439,9 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     }
     // кто тащит: только живые крысы рядом, держащие Действие
     it.grab = it.grab.filter((id) => { const r = w.rats.get(id); return r && !r.dead && !r.exited && !r.down && r.grab === it.id; });
-    let want = 0, strength = 0;
-    for (const id of it.grab) { const r = w.rats.get(id)!; const inp = inputs.get(id) ?? EMPTY_INPUT; want += inp.moveX; strength += r.mods.strength; }
+    let want = 0, strength = 0, level = true;
+    for (const id of it.grab) { const r = w.rats.get(id)!; const inp = inputs.get(id) ?? EMPTY_INPUT; want += inp.moveX; strength += r.mods.strength; r.climb = !sameLevel(r, it) && r.y + r.h > it.y + HEAVY_H; if (!sameLevel(r, it)) level = false; }
+    if (!level) want = 0; // кто-то ещё внизу под уступом — груз ждёт
     const mul = it.grab.length ? Math.min(1, strength / RULES.heavyMass) : 0;
     for (const id of it.grab) w.rats.get(id)!.dragMul = Math.max(0.15, mul) * (RULES.heavySpeed / PHYS.speed);
     const body: Body = { x: it.x, y: it.y, w: HEAVY_W, h: HEAVY_H, vx: it.vx, vy: it.vy, grounded: it.grounded };
@@ -444,14 +449,21 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
     body.vx = approach(body.vx, target, (it.grab.length ? 900 : 400) * dt);
     body.vy = Math.min(body.vy + PHYS.fallGravity * dt, PHYS.maxFall);
     const blocked = moveBody(l, body, dt);
-    // ступенька в 1 тайл берётся, если сил хватает на массу
-    if (blocked && body.grounded && it.grab.length && strength >= RULES.heavyMass && Math.abs(target) > 1) {
-      const dir = Math.sign(target), ny = body.y - TILE;
-      if (!collides(l, body.x + dir * 4, ny, body.w, body.h)) { body.y = ny; body.vy = -60; body.x += dir * 4; }
+    // ступенька: 1 тайл берёт любая, 2 тайла — если сил хватает на массу (вдвоём или мутант)
+    if (blocked && body.grounded && it.grab.length && Math.abs(target) > 1) {
+      const dir = Math.sign(target), maxStep = strength >= RULES.heavyMass ? 2 : 1;
+      for (let k = 1; k <= maxStep; k++) {
+        const ny = body.y - TILE * k;
+        if (collides(l, body.x, ny, body.w, body.h)) break; // над предметом стена — выше не поднять
+        if (!collides(l, body.x + dir * 4, ny, body.w, body.h)) {
+          body.y = ny; body.vy = -60 * k; body.x += dir * 4;
+          break;
+        }
+      }
     }
     it.x = body.x; it.y = body.y; it.vx = body.vx; it.vy = body.vy; it.grounded = body.grounded;
     // тянущие крысы держатся за предмет: не убегают дальше вытянутой лапы
-    for (const id of it.grab) { const r = w.rats.get(id)!; const dx = r.x + r.w / 2 - (it.x + HEAVY_W / 2); const lim = HEAVY_W / 2 + r.w / 2 + 4; if (dx > lim) r.x = it.x + HEAVY_W / 2 + lim - r.w / 2; if (dx < -lim) r.x = it.x + HEAVY_W / 2 - lim - r.w / 2; }
+    if (level) for (const id of it.grab) { const r = w.rats.get(id)!; const dx = r.x + r.w / 2 - (it.x + HEAVY_W / 2); const lim = HEAVY_W / 2 + r.w / 2 + 4; if (dx > lim) r.x = it.x + HEAVY_W / 2 + lim - r.w / 2; if (dx < -lim) r.x = it.x + HEAVY_W / 2 - lim - r.w / 2; }
   }
   for (const r of alive) {
     if (r.down) continue;
@@ -479,7 +491,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
       for (const o of alive) if (o !== r && o.down && dist(o, r) < 22) { o.revive += dt; reviving = true; if (o.revive >= RULES.reviveTime) { o.down = false; o.hp = RULES.reviveHp; o.revive = 0; ev(w, 'revive', o.x, o.y, o.name); } }
     }
     // тяжёлое: держишь Действие рядом — тащишь (пока держишь)
-    if (r.grab !== null) { const it = w.items.find((i) => i.id === r.grab); if (!inp.actHeld || !it || !overlap(r, { x: it.x, y: it.y, w: HEAVY_W, h: HEAVY_H }, 8)) { r.grab = null; r.dragMul = 1; } }
+    if (r.grab !== null) { const it = w.items.find((i) => i.id === r.grab); if (!inp.actHeld || !it || !nearHeavy(r, it)) { r.grab = null; r.dragMul = 1; } }
     if (r.grab === null && inp.actHeld && !reviving) {
       for (const it of w.items) if (itemSize(it.kind) === 3 && overlap(r, { x: it.x, y: it.y, w: HEAVY_W, h: HEAVY_H }, 6)) { r.grab = it.id; if (!it.grab.includes(r.id)) it.grab.push(r.id); ev(w, 'grab', it.x, it.y, KINDS[it.kind].name); break; }
     }
@@ -500,8 +512,8 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
       for (const e of l.exits) {
         if (!e.open || !overlap(r, { x: e.x - 4, y: e.y - 4, w: 24, h: 24 })) continue;
         const heavy = dragging ? w.items.find((i) => i.id === r.grab) : undefined;
-        if (e.type === '3' && (r.carry || heavy)) { ev(w, 'nofit', r.x, r.y); continue; }
-        if (e.type === '2' && heavy) { ev(w, 'nofit', r.x, r.y); continue; } // в Люк тяжёлое не затащишь
+        if (e.type === '3' && (r.carry || heavy)) { ev(w, 'nofit', r.x, r.y, heavy ? 'heavy3' : 'carry3'); continue; }
+        if (e.type === '2' && heavy) { ev(w, 'nofit', r.x, r.y, 'heavy2'); continue; } // в Люк тяжёлое не затащишь
         exiting = true; r.exitProg += dt / RULES.exitTime[e.type];
         if (r.exitProg >= 1) {
           r.exited = true; r.banked = r.pockets.slice(); if (r.carry) r.banked.push(r.carry); r.pockets = []; r.carry = null;

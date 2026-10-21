@@ -101,11 +101,35 @@ function enterNora() {
 type StationView = { c: Container; label: Text; sub: Text; sp: Sprite; extra: Graphics };
 const stationViews = new Map<StationId, StationView>();
 const STATION_TEX: Record<StationId, SpriteDef> = { stash: PILE, cauldron: CAULDRON, shelf: SHELF, table: TABLE, rack: RACK, tunnel: TUNNEL };
+const NORA_ART: Record<string, string> = { cauldron: 'cauldron', shelf: 'shelf', table: 'table', rack: 'rack', tunnel: 'tunnel' };
+const artCache = new Map<string, Texture>();
+async function art(name: string): Promise<Texture> {
+  const hit = artCache.get(name); if (hit) return hit;
+  const t: Texture = await Assets.load(`${import.meta.env.BASE_URL}nora/${name}.png`); t.source.scaleMode = 'nearest'; artCache.set(name, t); return t;
+}
+let decorGen = 0;
+/** Уют: лежанка, свечи, банки, корни под потолком, тёплые огоньки */
+async function buildDecor() {
+  const gen = ++decorGen;
+  const put = async (name: string, x: number, y: number, anchorY = 1, scale = 1) => { const t = await art(name); if (gen !== decorGen) return; const sp = new Sprite(t); sp.anchor.set(0.5, anchorY); sp.position.set(x, y); sp.scale.set(scale); marks.addChildAt(sp, 0); return sp; };
+  await Promise.all([
+    put('bed', 9 * TILE, 14 * TILE), put('candles', 49 * TILE, 14 * TILE), put('candles', 23 * TILE, 11 * TILE), put('jar', 30 * TILE, 6 * TILE), put('jar', 32 * TILE, 6 * TILE, 1, 0.8),
+    put('roots', 20 * TILE, 2 * TILE, 0), put('roots', 40 * TILE, 2 * TILE, 0, 1.2), put('roots', 56 * TILE, 2 * TILE, 0, 0.9),
+  ]);
+  if (gen !== decorGen) return;
+  // огоньки: тёплые пятна света с мерцанием
+  for (const [x, y, r] of [[49 * TILE, 13 * TILE, 34], [23 * TILE, 10 * TILE, 28], [36 * TILE, 4 * TILE, 40]] as [number, number, number][]) {
+    const g = new Graphics(); g.circle(0, 0, r).fill({ color: 0xffb060, alpha: 0.12 }); g.circle(0, 0, r * 0.5).fill({ color: 0xffd090, alpha: 0.12 }); g.position.set(x, y); g.blendMode = 'add'; marks.addChildAt(g, 0); glows.push(g);
+  }
+}
+const glows: Graphics[] = [];
 function buildStations() {
-  stationViews.clear();
+  stationViews.clear(); glows.length = 0;
+  void buildDecor();
   for (const st of NORA_STATIONS) {
     const c = new Container();
     const sp = new Sprite(tex('st_' + st.id, STATION_TEX[st.id])); sp.anchor.set(0.5, 1);
+    if (NORA_ART[st.id]) void art(NORA_ART[st.id]).then((t) => { if (!sp.destroyed) { sp.texture = t; updateStations(); } });
     const w = (st.c1 - st.c0 + 1) * TILE; sp.position.set(w / 2, TILE);
     const label = new Text({ text: st.name, resolution: 4, style: { fontFamily: 'monospace', fontSize: 8, fill: 0xe8d9c0, fontWeight: '700' } }); label.anchor.set(0.5, 1); label.position.set(w / 2, TILE - sp.height - 3);
     const sub = new Text({ text: '', resolution: 4, style: { fontFamily: 'monospace', fontSize: 7, fill: 0xbfae94 } }); sub.anchor.set(0.5, 0); sub.position.set(w / 2, TILE + 1);
@@ -125,9 +149,12 @@ function updateStations() {
   { const v = sv('stash'); v.sp.visible = false; const g = v.extra; g.clear(); drawPile(g, nora?.stash ?? {}, (NORA_STATIONS[2].c1 - NORA_STATIONS[2].c0 + 1) * TILE); v.sub.text = total ? `${total} шт.` : 'пусто — неси добычу'; v.label.position.y = TILE - pileHeight(total) - 4; }
   // стройплощадки: пока не построено — пунктир и табличка с ценой
   const site = (id: StationId, b: BuildInfo | undefined, w: number) => {
-    const v = sv(id); const built = (b?.level ?? 0) > 0; v.sp.visible = built; v.extra.clear();
-    if (!built) { v.extra.rect(2, -18, w - 4, 32).stroke({ width: 1, color: 0x8a7a5a, alpha: 0.8 }); v.extra.rect(w / 2 - 10, -4, 20, 12).fill(0x3a2a1a); v.label.text = `${b?.name ?? ''}: стройка`; }
-    else v.label.text = b?.name ?? '';
+    const v = sv(id); const built = (b?.level ?? 0) > 0; v.extra.clear();
+    if (!built) {
+      v.sp.visible = true; if (artCache.get('construction')) v.sp.texture = artCache.get('construction')!; else void art('construction').then(() => updateStations());
+      v.label.text = `${b?.name ?? ''}: стройка`;
+    } else { v.sp.visible = true; const t = artCache.get(NORA_ART[id]); if (t) v.sp.texture = t; v.label.text = b?.name ?? ''; }
+    v.label.position.y = TILE - v.sp.height - 3;
     return built;
   };
   const cb = site('cauldron', nora?.builds.cauldron, 5 * TILE);
@@ -360,14 +387,14 @@ function onEvent(e: Event) {
     case 'exit': toast(`🏁 ${e.a} вынесла добычу`); break;
     case 'kill': toast(`☠️ ${e.a} мёртв`); break;
     case 'steal': toast(`🐦 Голубь спёр ${e.a}`); break;
-    case 'nofit': toast('Орган не пролазит в водосток'); break;
+    case 'nofit': toast(e.a === 'heavy2' ? 'В Люк тяжёлое не затащить — только в Щель в заборе (дальний край карты)' : e.a === 'heavy3' ? 'В Водосток тяжёлое не пролезет — тащи к Щели в заборе' : 'В Водосток пролезет только то, что в карманах'); break;
     case 'catdead': toast('Кот сдох'); break;
     case 'drink': toast('Попила — теперь можно пометить еду (Действие у еды)'); break;
     case 'mark': toast('Еда помечена. Ждём, кто съест…'); break;
     case 'infect': toast(`🤢 ${e.a} заражён`); break;
     case 'sick': toast(`${e.a} болеет — роняет Гной`); break;
     case 'weak': toast(`${e.a} ослаб — добивай одна`); break;
-    case 'grab': toast(`Тащим: ${e.a}. Тяжело — зови напарника`); break;
+    case 'grab': toast(`Тащим: ${e.a} → к Щели в заборе. Одной — вполсилы, вдвоём — бегом`); break;
   }
   if (e.x || e.y) fx(e);
 }
@@ -380,6 +407,7 @@ const stage = new Container(); app.stage.addChild(stage);
 let levelSprite: Sprite | null = null;
 // слои параллакса по темам: имя файла и скорость относительно камеры
 const PARALLAX: Record<string, [string, number][]> = {
+  nora: [['nora_far', 0.35]],
   yard: [['yard_far', 0.12], ['yard_mid', 0.4], ['yard_near', 0.75]],
   kitchen: [['kitchen_far', 0.1], ['kitchen_mid', 0.35], ['kitchen_near', 0.7]],
   roof: [['roof_far', 0.08], ['roof_mid', 0.35], ['roof_near', 0.75]],
@@ -410,7 +438,7 @@ function buildLevel(l: Level, themeId: string) {
   const t = Texture.from(drawLevel(l.cols, l.rows, l.solid, theme, !!PARALLAX[themeId])); t.source.scaleMode = 'nearest';
   levelSprite = new Sprite(t); stage.addChildAt(levelSprite, 0);
   for (const m of marks.children) m.destroy(); marks.removeChildren();
-  for (const wtr of l.water) { const s = new Sprite(tex('water', WATER)); s.position.set(wtr.x, wtr.y); marks.addChild(s); }
+  for (const wtr of l.water) { const s = new Sprite(tex('water', WATER)); s.position.set(wtr.x, wtr.y); marks.addChild(s); const t = new Text({ text: 'лужа', style: { fontFamily: 'monospace', fontSize: 6, fill: 0x9fd8ff } }); t.anchor.set(0.5, 1); t.position.set(wtr.x + 8, wtr.y + 9); marks.addChild(t); }
   for (const v of ents.children) v.destroy(); ents.removeChildren();
   views.clear();
 }
@@ -629,6 +657,7 @@ app.ticker.add(() => {
     }
     for (const [k, v] of views) if (!seen.has(k)) { v.c.destroy(); views.delete(k); }
 
+    if (phase === 'lobby') for (let i = 0; i < glows.length; i++) glows[i].alpha = 0.8 + 0.2 * Math.sin(frame / 7 + i * 2) * Math.sin(frame / 3.1 + i);
     if (frame % 6 === 0 && phase === 'lobby') {
       const st = stationHere();
       $('hint').textContent = st ? `ДЕЙСТ. — ${NORA_STATIONS.find((x) => x.id === st)!.name}: ${NORA_STATIONS.find((x) => x.id === st)!.hint}` : '';
@@ -657,8 +686,9 @@ app.ticker.add(() => {
         // подсказка про лут рядом
         if (me && !me.down) {
           let hint = '';
-          for (const it of s1.it) { const sz = itemSize(it[1]); if (sz === 1) continue; const d = Math.hypot(it[2] + 8 - (me.x + 7), it[3] + 4 - (me.y + 5)); if (d < 26) { hint = sz === 3 ? `${KINDS[it[1]].name}: тяжёлое — держи ДЕЙСТ. и тащи к Щели (сила ${me.mods.strength.toFixed(1)}/3)` : `${KINDS[it[1]].name}: ДЕЙСТ. — взять в зубы`; break; } }
-          if (!hint && me.carry) hint = `В зубах ${KINDS[me.carry].name} · ДЕЙСТ. — выплюнуть`;
+          for (const it of s1.it) { const sz = itemSize(it[1]); if (sz === 1) continue; const d = Math.hypot(it[2] + 8 - (me.x + 7), it[3] + 4 - (me.y + 5)); if (d < 26) { hint = sz === 3 ? `${KINDS[it[1]].name}: тяжёлое — держи ДЕЙСТ. и тащи к Щели в заборе (сила ${me.mods.strength.toFixed(1)}/${RULES.heavyMass}: ${me.mods.strength >= RULES.heavyMass ? 'ступеньки по 2' : 'ступеньки по 1, зови напарника'})` : `${KINDS[it[1]].name}: ДЕЙСТ. — взять в зубы`; break; } }
+          if (!hint && me.carry) hint = `В зубах ${KINDS[me.carry].name} · ДЕЙСТ. — выплюнуть (в Водосток не пролезет)`;
+          if (!hint && level) for (const wt of level.water) { if (Math.hypot(wt.x + 8 - (me.x + 7), wt.y + 12 - (me.y + 5)) < 24) { hint = me.water ? 'Лужа: уже напилась — найди Еду и держи ДЕЙСТ., чтобы пометить' : 'Лужа: держи ДЕЙСТ. — попить, потом пометить Еду Людям'; break; } }
           $('hint').textContent = hint;
         }
       }

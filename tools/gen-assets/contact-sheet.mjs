@@ -13,7 +13,7 @@ const spec = JSON.parse(await readFile(join(root, 'tools/gen-assets/prompts.json
 const batch = String(process.argv[3] ?? '1');
 const batches = {
   '1': { ids: ['secretion_drop', 'secretion_puddle', 'secretion_smear', 'rat_jump_1', 'human_panic_1', 'bg_yard_far', 'bg_yard_mid', 'bg_yard_near'], out: 'contact-sheet.png', title: 'generated batch 1 (Codex CLI / gpt-image-2, chroma #FF00FF)' },
-  '3': { ids: ['bg_nora_far', 'st_cauldron', 'st_potion_shelf', 'st_map_table', 'st_pockets_rack', 'st_tunnel_exit', 'st_construction', 'dec_rag_bed', 'dec_candles', 'dec_pickle_jar', 'dec_root_bundle'], out: 'contact-sheet-3.png', title: 'generated batch 3 — Nora hub: far layer + station/decor sprites (Codex CLI / gpt-image-2, chroma #FF00FF)' },
+  '3': { ids: ['bg_nora_far', 'st_cauldron', 'st_potion_shelf', 'st_map_table', 'st_pockets_rack', 'st_pockets_rack.v1', 'st_tunnel_exit', 'st_construction', 'st_construction.v1', 'dec_rag_bed', 'dec_rag_bed.v1', 'dec_candles', 'dec_pickle_jar', 'dec_root_bundle', 'dec_root_bundle.v1'], out: 'contact-sheet-3.png', title: 'generated batch 3 — Nora hub: far layer + station/decor sprites (Codex CLI / gpt-image-2, chroma #FF00FF)' },
   '2': { ids: ['bg_kitchen_far', 'bg_kitchen_mid', 'bg_kitchen_near', 'bg_roof_far', 'bg_roof_mid', 'bg_roof_near'], out: 'contact-sheet-2.png', title: 'generated batch 2 — kitchen/roof parallax (Codex CLI / gpt-image-2, chroma #FF00FF)' },
 };
 if (!batches[batch]) { console.error('unknown batch', batch); process.exit(2); }
@@ -33,7 +33,7 @@ const exists = async (p) => { try { await access(p); return true; } catch { retu
 // For small sprites: show @Nx preview enlarged more, up to 8x, next to raw thumbnail.
 const cells = [];
 for (const id of ids) {
-  const it = spec.items.find((i) => i.id === id);
+  const it = spec.items.find((i) => i.id === id.replace(/.v1$/, ''));
   const outP = join(gen, `${id}.png`);
   const rawP = join(gen, 'raw', `${id}.png`);
   if (!(await exists(outP))) { console.warn('missing', outP); continue; }
@@ -43,14 +43,19 @@ for (const id of ids) {
   const layers = [];
   if (isSmall && batch === '3') {
     // batch 3 layout: nearest-upscaled processed sprite on top, 1x copy bottom-left, raw thumbnail bottom-right
-    const scale = Math.max(1, Math.min(8, Math.floor((CELL_W - 16) / m.width), Math.floor(160 / m.height)));
+    const altP = join(gen, 'alt-lanczos', `${id}.png`);
+    const hasAlt = await exists(altP);
+    const n = hasAlt ? 2 : 1;
+    const scale = Math.max(1, Math.min(8, Math.floor((CELL_W - 16 - 12 * (n - 1)) / (n * m.width)), Math.floor(160 / m.height)));
     const big = await sharp(outP).resize(m.width * scale, m.height * scale, { kernel: 'nearest' }).png().toBuffer();
-    layers.push({ input: big, left: Math.floor((CELL_W - m.width * scale) / 2), top: Math.floor((166 - m.height * scale) / 2) });
+    const x0 = Math.floor((CELL_W - (n * m.width * scale + 12 * (n - 1))) / 2);
+    layers.push({ input: big, left: x0, top: Math.floor((166 - m.height * scale) / 2) });
+    if (hasAlt) layers.push({ input: await sharp(altP).resize(m.width * scale, m.height * scale, { kernel: 'nearest' }).png().toBuffer(), left: x0 + m.width * scale + 12, top: Math.floor((166 - m.height * scale) / 2) });
     layers.push({ input: await sharp(outP).png().toBuffer(), left: 8, top: 270 - m.height - 8 });
     const raw = await sharp(rawP).resize({ height: 96, fit: 'inside' }).png().toBuffer();
     const rm = await sharp(raw).metadata();
     layers.push({ input: raw, left: CELL_W - rm.width - 8, top: 270 - rm.height - 4 });
-    var txt = `${id} ${m.width}x${m.height}/${it.colors}c | nearest ${scale}x | 1x | raw`;
+    var txt = `${id} ${m.width}x${m.height}/${it.colors}c | nearest ${scale}x${hasAlt ? ` | lanczos ${scale}x` : ''} | 1x | raw`;
   } else if (isSmall) {
     // processed at 8x (nearest) on the left; raw downscaled to 200px on the right
     const scale = Math.max(1, Math.floor(Math.min(8, 260 / m.height, (CELL_W - 128 - 48 - m.width) / (2 * m.width))));

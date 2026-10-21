@@ -206,12 +206,12 @@ export const TUNNEL: SpriteDef = [
   '..........DDDDDDDDDDDD..........', '.......DDDkkkkkkkkkkkkDDD.......', '.....DDkkkkkkkkkkkkkkkkkkDD.....', '....DkkkkkkkkkkkkkkkkkkkkkkD....', '...DkkkkkkkkkkkkkkkkkkkkkkkkD...', '..DkkkkkkkkkkkkkkkkkkkkkkkkkkD..', '..DkkkkkkkkkkkkkkkkkkkkkkkkkkD..', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.', '.DkkkkkkkkkkkkkkkkkkkkkkkkkkkkD.'];
 
 // ---------- тайлы 16×16: три варианта на карту; верхняя кромка подсвечивается отдельно ----------
-export type TileTheme = { base: string; dark: string; light: string; top: string; bg: string; bgDeco: string };
+export type TileTheme = { base: string; dark: string; light: string; top: string; bg: string; bgDeco: string; cave?: boolean };
 export const THEMES: Record<string, TileTheme> = {
   yard:    { base: '#6e5538', dark: '#4e3a25', light: '#846846', top: '#8fa15a', bg: '#1b1713', bgDeco: '#2a231c' },
   kitchen: { base: '#7d8591', dark: '#5a6069', light: '#9aa3ad', top: '#b8c0c8', bg: '#14181d', bgDeco: '#1f262e' },
   roof:    { base: '#5f5b57', dark: '#3f3c39', light: '#78736e', top: '#8c8580', bg: '#101216', bgDeco: '#1a1e26' },
-  nora:    { base: '#5a3f2c', dark: '#3a271a', light: '#76563c', top: '#6e5038', bg: '#120d09', bgDeco: '#1d1510' },
+  nora:    { base: '#5a3f2c', dark: '#3a271a', light: '#76563c', top: '#6e5038', bg: '#120d09', bgDeco: '#1d1510', cave: true },
 };
 
 /** Рисует весь уровень в один canvas (≤ 1920×448) → одна текстура. */
@@ -235,6 +235,22 @@ export function drawLevel(cols: number, rows: number, solid: Uint8Array, theme: 
     ctx.fillStyle = theme.light; ctx.fillRect(x, y, 1, 16); ctx.fillRect(x, y, 16, 1);
     ctx.fillStyle = theme.dark; ctx.fillRect(x + 15, y, 1, 16); ctx.fillRect(x, y + 15, 16, 1);
     if (!isSolid(c, r - 1)) { ctx.fillStyle = theme.top; ctx.fillRect(x, y, 16, 3); ctx.fillStyle = theme.light; ctx.fillRect(x, y + 3, 16, 1); }
+  }
+  // пещера: скругляем внешние углы земли — где по диагонали пусто с двух сторон, срезаем четверть круга
+  if (theme.cave) {
+    ctx.globalCompositeOperation = 'destination-out';
+    const R = 7;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      if (!solid[r * cols + c]) continue;
+      const x = c * 16, y = r * 16;
+      const cut = (cx: number, cy: number, qx: number, qy: number) => { ctx.beginPath(); ctx.moveTo(qx, qy); ctx.lineTo(qx, cy); ctx.arc(cx, cy, R, Math.atan2(qy - cy, 0) , Math.atan2(0, qx - cx), (qx - cx) * (qy - cy) < 0); ctx.closePath(); ctx.fill(); };
+      if (!isSolid(c, r - 1) && !isSolid(c - 1, r)) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + R, y); ctx.arc(x + R, y + R, R, -Math.PI / 2, Math.PI, true); ctx.lineTo(x, y); ctx.fill(); }
+      if (!isSolid(c, r - 1) && !isSolid(c + 1, r)) { ctx.beginPath(); ctx.moveTo(x + 16, y); ctx.lineTo(x + 16, y + R); ctx.arc(x + 16 - R, y + R, R, 0, -Math.PI / 2, true); ctx.lineTo(x + 16, y); ctx.fill(); }
+      if (!isSolid(c, r + 1) && !isSolid(c - 1, r)) { ctx.beginPath(); ctx.moveTo(x, y + 16); ctx.lineTo(x, y + 16 - R); ctx.arc(x + R, y + 16 - R, R, Math.PI, Math.PI / 2, true); ctx.lineTo(x, y + 16); ctx.fill(); }
+      if (!isSolid(c, r + 1) && !isSolid(c + 1, r)) { ctx.beginPath(); ctx.moveTo(x + 16, y + 16); ctx.lineTo(x + 16 - R, y + 16); ctx.arc(x + 16 - R, y + 16 - R, R, Math.PI / 2, 0, true); ctx.lineTo(x + 16, y + 16); ctx.fill(); }
+      void cut;
+    }
+    ctx.globalCompositeOperation = 'source-over';
   }
   return cv;
 }

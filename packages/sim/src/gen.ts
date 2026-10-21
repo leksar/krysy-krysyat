@@ -61,11 +61,31 @@ class G {
     }
     return seen;
   }
+  /** Куда дотащишь тяжёлое: только по полу, вбок, падать можно сколько угодно, вверх — ступенькой ≤ maxStep тайлов. */
+  dragReach(start: [number, number], maxStep: number): Set<number> {
+    const key = (r: number, c: number) => r * this.cols + c;
+    const fall = (r: number, c: number): [number, number] | null => { while (!this.stand(r, c) && !this.solid(r + 1, c) && r < this.rows - 2) r++; return this.stand(r, c) ? [r, c] : null; };
+    const seen = new Set<number>(); const q: [number, number][] = [];
+    const f0 = fall(start[0], start[1]); if (!f0) return seen;
+    seen.add(key(...f0)); q.push(f0);
+    while (q.length) {
+      const [r, c] = q.shift()!;
+      for (const dc of [-1, 1]) {
+        if (!this.solid(r, c + dc)) { const f = fall(r, c + dc); if (f && !seen.has(key(...f))) { seen.add(key(...f)); q.push(f); } continue; }
+        for (let up = 1; up <= maxStep; up++) {
+          if (this.solid(r - up, c)) break; // над предметом потолок
+          if (!this.solid(r - up, c + dc)) { const f = fall(r - up, c + dc); if (f && !seen.has(key(...f))) { seen.add(key(...f)); q.push(f); } break; }
+        }
+      }
+    }
+    return seen;
+  }
 }
 
 type Cell = { r: number; c: number };
 
 export let lastGenAttempts = 0;
+export let lastFailReason = '';
 export function generateLevel(themeId: string, seed: number): Level {
   const theme = (MAPS[themeId] ? themeId : 'yard') as ThemeId;
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -91,9 +111,9 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
     const w = 6 + g.ri(9);
     const end = Math.min(cols - 2, c + w - 1);
     if (c > 26 && end < cols - 14 && h === 0 && g.rand() < (theme === 'roof' ? 0.25 : 0.18)) {
-      // яма шириной 2 (на крыше — провал между домами с карнизами внизу); не раньше 26-й колонки
-      const pw = 2;
-      for (let x = c; x < c + pw && x < cols - 2; x++) { groundTop[x] = ROWS - 2; pits.push(x); }
+      // яма-ложбина шириной 3 (1-2-1 вниз): крыса проваливается, но тяжёлое по ступенькам в 1 тайл вытащишь; не раньше 26-й колонки
+      const pw = 3;
+      for (let x = c; x < c + pw && x < cols - 2; x++) { groundTop[x] = G0 + (x === c + 1 ? 2 : 1); pits.push(x); }
       c += pw; continue;
     }
     for (let x = c; x <= end; x++) groundTop[x] = G0 - h;
@@ -101,24 +121,34 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
     h = Math.max(0, Math.min(theme === 'roof' ? 8 : 4, h + dh));
     c = end + 1;
   }
+  // бордюр: у каждого перепада в 2 ряда — ступенька в 1 тайл, чтобы тяжёлое можно было втащить по одному тайлу
+  for (let x = 2; x < cols - 2; x++) if (groundTop[x + 1] === groundTop[x] - 2 || groundTop[x - 1] === groundTop[x] - 2) groundTop[x] -= 1;
   for (let x = 1; x < cols - 1; x++) g.box(groundTop[x] + 1, ROWS - 2, x, x);
-  // карнизы в ямах, чтобы падение было дорогой, а не смертью: ступенька у одного края
-  for (const x of pits) { if (!pits.includes(x - 1)) g.ledge(ROWS - 4, x, x); if (!pits.includes(x + 1)) g.ledge(ROWS - 6, x, x); } // карнизы с обеих сторон — выбраться можно в любую сторону
 
   // --- структуры по теме ---
-  const structs: ((anchorC: number) => void)[] = theme === 'yard' ? [
-    (a) => tree(g, a, groundTop[a]), (a) => tree(g, a, groundTop[a]), (a) => garage(g, a, groundTop[a]), (a) => tower(g, a, groundTop[a], 'balcony'), (a) => bench(g, a, groundTop[a]), (a) => bins(g, a, groundTop[a]),
+  // структуры ставим только на ровный участок рельефа во всю их ширину [l, r] от якоря:
+  // иначе нижние ветки/крыши ложатся на соседнюю террасу бугром, и тяжёлое по полу не протащить
+  type Struct = { f: (a: number) => void; l: number; r: number };
+  const structs: Struct[] = theme === 'yard' ? [
+    { f: (a) => tree(g, a, groundTop[a]), l: -5, r: 6 }, { f: (a) => tree(g, a, groundTop[a]), l: -5, r: 6 }, { f: (a) => garage(g, a, groundTop[a]), l: -3, r: 12 },
+    { f: (a) => tower(g, a, groundTop[a], 'balcony'), l: -5, r: 8 }, { f: (a) => bench(g, a, groundTop[a]), l: 0, r: 7 }, { f: (a) => bins(g, a, groundTop[a]), l: 0, r: 6 },
   ] : theme === 'kitchen' ? [
-    (a) => table(g, a, groundTop[a]), (a) => shelves(g, a, groundTop[a]), (a) => fridge(g, a, groundTop[a]), (a) => tower(g, a, groundTop[a], 'lift'), (a) => table(g, a, groundTop[a]),
+    { f: (a) => table(g, a, groundTop[a]), l: -1, r: 8 }, { f: (a) => shelves(g, a, groundTop[a]), l: -6, r: 9 }, { f: (a) => fridge(g, a, groundTop[a]), l: -2, r: 2 },
+    { f: (a) => tower(g, a, groundTop[a], 'lift'), l: -5, r: 7 }, { f: (a) => table(g, a, groundTop[a]), l: -1, r: 8 },
   ] : [
-    (a) => hut(g, a, groundTop[a]), (a) => antenna(g, a, groundTop[a]), (a) => ventbox(g, a, groundTop[a]), (a) => tower(g, a, groundTop[a], 'escape'), (a) => ventbox(g, a, groundTop[a]),
+    { f: (a) => hut(g, a, groundTop[a]), l: -2, r: 6 }, { f: (a) => antenna(g, a, groundTop[a]), l: -4, r: 4 }, { f: (a) => ventbox(g, a, groundTop[a]), l: 0, r: 2 },
+    { f: (a) => tower(g, a, groundTop[a], 'escape'), l: -5, r: 8 }, { f: (a) => ventbox(g, a, groundTop[a]), l: 0, r: 2 },
   ];
   // стартовая зона (до 18-й колонки) свободна: первая структура не должна быть стеной у спавна
-  const soft: ((anchorC: number) => void)[] = theme === 'yard' ? [(a) => bench(g, a, groundTop[a]), (a) => bins(g, a, groundTop[a])] : theme === 'kitchen' ? [(a) => table(g, a, groundTop[a])] : [(a) => ventbox(g, a, groundTop[a])];
-  for (let x = 18; x < cols - 10; x += 9 + g.ri(8)) { if (pits.includes(x) || pits.includes(x + 3)) continue; (x < 36 ? g.pick(soft) : g.pick(structs))(x); }
+  const soft: Struct[] = theme === 'yard' ? [{ f: (a) => bench(g, a, groundTop[a]), l: 0, r: 7 }, { f: (a) => bins(g, a, groundTop[a]), l: 0, r: 6 }] : theme === 'kitchen' ? [{ f: (a) => table(g, a, groundTop[a]), l: -1, r: 8 }] : [{ f: (a) => ventbox(g, a, groundTop[a]), l: 0, r: 2 }];
+  const flat = (a: number, st: Struct) => { if (a + st.l < 2 || a + st.r > cols - 3) return false; for (let c = a + st.l; c <= a + st.r; c++) if (groundTop[c] !== groundTop[a]) return false; return true; };
+  for (let x = 18; x < cols - 10; x += 9 + g.ri(8)) {
+    const st = x < 36 ? g.pick(soft) : g.pick(structs);
+    for (const dx of [0, 2, -2, 4, -4, 6, -6, 8]) if (flat(x + dx, st)) { st.f(x + dx); break; }
+  }
   // случайные полки в воздухе (крыша — верёвки, кухня — полки)
-  const airN = theme === 'kitchen' ? 14 : 10;
-  for (let i = 0; i < airN; i++) { const r = 4 + g.ri(G0 - 8), cc = 14 + g.ri(cols - 22), w = 3 + g.ri(5); if (!g.solid(r, cc) && !g.solid(r - 1, cc)) g.ledge(r, cc, Math.min(cols - 3, cc + w)); }
+  const airN = theme === 'kitchen' ? 14 : theme === 'roof' ? 16 : 12;
+  for (let i = 0; i < airN; i++) { const r = 4 + g.ri(G0 - 8), cc = 14 + g.ri(cols - 22), w = 3 + g.ri(5); const c1 = Math.min(cols - 3, cc + w); let ok = !g.solid(r, cc) && !g.solid(r - 1, cc); for (let c = cc; c <= c1; c++) if (r >= groundTop[c] - 2) ok = false; if (ok) g.ledge(r, cc, c1); } // полка не ниже 3 рядов над любой террасой под ней
   // подвал во Дворе: коридор под землёй с дырами
   if (theme === 'yard') {
     for (let x = 1; x < cols - 1; x++) { g.set(ROWS - 3, x, 0); g.set(ROWS - 2, x, 0); }
@@ -130,7 +160,7 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
   const spawnC = 2; let spawnR = 1; while (!g.stand(spawnR, spawnC) && spawnR < ROWS - 2) spawnR++;
   const seen = g.reach([spawnR, spawnC]);
   const cells: Cell[] = []; for (const k of seen) cells.push({ r: Math.floor(k / cols), c: k % cols });
-  if (cells.length < cols * 1.8 && !force) return null;
+  if (cells.length < cols * 1.4 && !force) { lastFailReason = 'cells'; return null; }
   const used = new Set<number>(); const key = (x: Cell) => x.r * cols + x.c;
   const take = (pred: (x: Cell) => boolean, minDist = 0, from: Cell[] = []): Cell | null => {
     const pool = cells.filter((x) => !used.has(key(x)) && pred(x) && from.every((f) => Math.abs(f.c - x.c) >= minDist));
@@ -141,13 +171,14 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
   const maxC = Math.max(...cells.map((x) => x.c)), minR = Math.min(...cells.map((x) => x.r));
   used.add(key({ r: spawnR, c: spawnC }));
 
-  // Выходы: Щель — самая дальняя; Люк — самая высокая; Водосток — высокая в середине
+  // Выходы: Щель — самая дальняя и обязательно дотаскиваемая (тяжёлое выносят только через неё); Люк — самая высокая; Водосток — высокая в середине
+  const dragSeen = g.dragReach([spawnR, spawnC], 2); // вдвоём (ступенька 2 тайла)
   const exits: Exit[] = [];
-  const e1 = take((x) => x.c >= maxC - 6); if (!e1 && !force) return null;
+  const e1 = take((x) => x.c >= maxC - 6 && dragSeen.has(key(x)) && x.r === groundTop[x.c]) ?? take((x) => x.c >= maxC - 6 && dragSeen.has(key(x))); if (!e1 && !force) { lastFailReason = 'slit'; return null; }
   const e2 = take((x) => x.r <= minR + 3 && x.c > 10, 8, e1 ? [e1] : []);
   const e3 = take((x) => x.r <= minR + 8 && x.c > cols * 0.3 && x.c < cols * 0.75, 8, [e1, e2].filter(Boolean) as Cell[]) ?? take((x) => x.r <= minR + 10 && x.c > 10, 6, [e1, e2].filter(Boolean) as Cell[]);
   for (const [t, cell] of [['1', e1], ['2', e2], ['3', e3]] as [ExitType, Cell | null][]) if (cell) exits.push({ type: t, x: cell.c * TILE, y: cell.r * TILE, open: t !== '2', name: EXIT_INFO[t].name });
-  if (exits.length < 2 && !force) return null;
+  if (exits.length < 2 && !force) { lastFailReason = 'exits'; return null; }
 
   // Люди
   const humans: { type: HumanType; x: number; y: number }[] = [];
@@ -161,7 +192,9 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
   const items: { kind: string; x: number; y: number }[] = [];
   const itemCounts = theme === 'yard' ? { f: 12, m: 14, o: 2 } : theme === 'kitchen' ? { f: 22, m: 8, o: 2 } : { f: 7, m: 20, o: 2 };
   for (const [k, n] of Object.entries(itemCounts)) for (let i = 0; i < n; i++) {
-    const cell = take((x) => x.c > 4 && (k === 'o' ? x.r <= minR + 10 : true)) ?? take((x) => x.c > 4);
+    let cell: Cell | null = null;
+    if (k === 'o') { for (let t = 0; t < 8 && !cell; t++) { const c0 = take((x) => x.c > 8 && dragSeen.has(key(x))); if (c0 && e1 && g.dragReach([c0.r, c0.c], 2).has(key(e1))) cell = c0; } }
+    cell = cell ?? take((x) => x.c > 4 && (k === 'o' ? dragSeen.has(key(x)) : true)) ?? take((x) => x.c > 4);
     if (cell) items.push({ kind: k === 'f' ? 'bread' : k === 'm' ? 'butt' : 'heart', x: cell.c * TILE, y: cell.r * TILE });
   }
   // вода, кот, насесты
@@ -180,7 +213,7 @@ function tryGenerate(theme: ThemeId, seed: number, force = false): Level | null 
 // ---------- структуры (anchor — колонка, top — ряд стояния на земле в этой колонке) ----------
 function tree(g: G, a: number, top: number) {
   const h = 6 + g.ri(5);
-  g.wall(a, top - h + 1, top); g.wall(a + 1, top - h + 1, top);
+  g.wall(a, top - h + 1, top - 1); g.wall(a + 1, top - h + 1, top - 1); // у корней дупло в 1 тайл: крыса и тяжёлое проходят под стволом
   // кроны с обеих сторон каждые 2 ряда, через уровень смещены наружу: тогда над одним концом кроны всегда свободно,
   // и подъём «вверх на 2, потом вбок на 2» проходит (ствол перекрывает проход — дерево обязано быть лазабельным)
   let k = 0;
@@ -190,7 +223,7 @@ function tree(g: G, a: number, top: number) {
 function garage(g: G, a: number, top: number) {
   const w = 7 + g.ri(5), h = 5;
   g.box(top - h + 1, top, a, a + w);
-  g.ledge(top - 1, a - 3, a - 2); g.ledge(top - 3, a - 2, a - 1);          // ящики
+  g.box(top - 1, top, a - 3, a - 3); g.box(top - 3, top, a - 2, a - 1);    // ящики лесенкой до земли (по 2 тайла — втаскивается вдвоём)
   if (g.rand() < 0.6) g.ledge(top - h - 2, a + 2, a + 5);                // труба над крышей
 }
 function tower(g: G, a: number, top: number, kind: 'balcony' | 'lift' | 'escape') {
@@ -201,10 +234,21 @@ function tower(g: G, a: number, top: number, kind: 'balcony' | 'lift' | 'escape'
   g.ledge(top - h, a - 1, a + w + 1);
 }
 function bench(g: G, a: number, top: number) { g.ledge(top - 1, a, a + 3); if (g.rand() < 0.5) g.box(top - 2, top, a + 6, a + 7); }
-function bins(g: G, a: number, top: number) { g.box(top - 2, top, a, a + 2); g.box(top - 2, top, a + 4, a + 6); }
+function bins(g: G, a: number, top: number) { g.box(top - 1, top, a, a + 2); g.box(top - 1, top, a + 4, a + 6); }
 function table(g: G, a: number, top: number) { const w = 5 + g.ri(4); g.box(top - 1, top, a, a + w); g.ledge(top, a - 1, a - 1); if (g.rand() < 0.5) g.ledge(top - 4, a + 1, a + w - 1); }
 function shelves(g: G, a: number, top: number) { let r = top - 2; let off = 0; for (let i = 0; i < 3 + g.ri(3); i++) { g.ledge(r, a + off, a + off + 3); r -= 2; off += g.pick([-3, 3]); } }
-function fridge(g: G, a: number, top: number) { g.box(top - 5, top, a, a + 2); g.ledge(top - 1, a - 2, a - 2); g.ledge(top - 3, a - 3, a - 2); }
-function hut(g: G, a: number, top: number) { const w = 4 + g.ri(3); g.box(top - 3, top, a, a + w); g.ledge(top - 1, a - 2, a - 1); g.ledge(top - 5, a + 1, a + 2); }
-function antenna(g: G, a: number, top: number) { const h = 8 + g.ri(6); g.wall(a, top - h + 1, top); let k = 0; for (let r = top - 2; r > top - h; r -= 2, k++) { const o = k % 2 ? 2 : 0; g.ledge(r, a + 1 + o, a + 2 + o); g.ledge(r, a - 2 - o, a - 1 - o); } }
+function fridge(g: G, a: number, top: number) { g.box(top - 5, top, a, a + 2); g.box(top - 1, top, a - 2, a - 2); g.box(top - 3, top, a - 1, a - 1); } // коробки лесенкой по 2 тайла: тяжёлое втаскивается вдвоём
+function hut(g: G, a: number, top: number) { const w = 4 + g.ri(3); g.box(top - 3, top, a, a + w); g.box(top - 1, top, a - 2, a - 1); g.ledge(top - 5, a + 1, a + 2); } // крыльцо — сплошной ящик до земли: под навесной полкой тяжёлое застревает
+function antenna(g: G, a: number, top: number) { const h = 8 + g.ri(6); g.wall(a, top - h + 1, top - 1); g.ledge(top - 1, a - 1, a + 1); /* мачта на растяжках, под ней проход */ let k = 0; for (let r = top - 2; r > top - h; r -= 2, k++) { const o = k % 2 ? 2 : 0; g.ledge(r, a + 1 + o, a + 2 + o); g.ledge(r, a - 2 - o, a - 1 - o); } }
 function ventbox(g: G, a: number, top: number) { g.box(top - 1, top, a, a + 1 + g.ri(2)); }
+
+/** Отладка: принудительная генерация с ASCII-картой (# земля, . пусто, d — куда дотащишь тяжёлое, S спавн, 1/2/3 выходы, o органы) */
+export function debugForce(theme: string, seed: number): { cols: number; ascii: string } {
+  const l = tryGenerate(theme as ThemeId, seed, true)!;
+  const g = new G(l.cols, seed); g.s = l.solid as Uint8Array;
+  const spawnC = 2; let spawnR = 1; while (!g.stand(spawnR, spawnC) && spawnR < ROWS - 2) spawnR++;
+  const d = g.dragReach([spawnR, spawnC], 2), rr = g.reach([spawnR, spawnC]);
+  const rows: string[] = [];
+  for (let r = 0; r < ROWS; r++) { let line = ''; for (let c = 0; c < l.cols; c++) { let ch = g.solid(r, c) ? '#' : '.'; if (rr.has(r * l.cols + c)) ch = ':'; if (d.has(r * l.cols + c)) ch = 'd'; if (r === spawnR && c === spawnC) ch = 'S'; for (const e of l.exits) if (e.x / TILE === c && e.y / TILE === r) ch = e.type; for (const it of l.items) if (it.kind === 'heart' && it.x / TILE === c && it.y / TILE === r) ch = 'o'; line += ch; } rows.push(line); }
+  return { cols: l.cols, ascii: rows.join('\n') };
+}
