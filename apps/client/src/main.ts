@@ -1,7 +1,7 @@
 // Клиент «Крысы крысят» v0: лобби по коду → Вылазка (предсказание своей Крысы, интерполяция остального) → итоги.
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { tex, itemIcon, drawLevel, THEMES, HUMANS, BROOM, PIGEON, CAT, ITEM, ITEM_TINT, EXITS, WATER } from './sprites';
-import { parseMap, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event } from '@krysy/sim';
+import { generateLevel, MAPS, stepRat, applyRatSnap, TILE, TICK, RAT_W, RAT_H, RULES, KINDS, EXIT_INFO, HUMAN_INFO, type Input, type Rat, type RatSnap, type Snapshot, type Level, type Event } from '@krysy/sim';
 import { Touch } from './input';
 import { Net, type LobbyMsg, type ResultsMsg } from './net';
 
@@ -81,8 +81,8 @@ net.on('lobby', (m) => {
   $<HTMLButtonElement>('start').disabled = !host;
   $('start').textContent = host ? 'В Вылазку' : 'Ждём хозяина комнаты…';
 });
-net.on('raid', (map) => {
-  level = parseMap(MAPS[map]);
+net.on('raid', (map, seed) => {
+  level = generateLevel(map, seed);
   me = null; pendingInputs = []; lastServerMe = null; snaps = []; seq = 0;
   buildLevel(level);
   phase = 'raid';

@@ -3,8 +3,8 @@
 // Переполох, Выходы) считает сервер в stepWorld и рассылает снапшотами.
 // Контракт: внутри шагов нет Math.random / Date.now — только world.rng.
 
-export * from './maps.js';
-import { MAPS, type MapDef } from './maps.js';
+export * from './gen.js';
+import { MAPS, generateLevel } from './gen.js';
 
 export const TILE = 16;
 export const TICK_HZ = 60;
@@ -82,6 +82,7 @@ export type Human = Body & {
   timer: number; cd: number; target: string | null; dropped: boolean;
   biters: { id: string; at: number }[];
   stun: number; wind: 'stomp' | 'swing' | null; after: HumanState;
+  pcd: number; // кулдаун вклада в Переполох: один и тот же Человек не накручивает шкалу каждые 3 с
 };
 const HUMAN: Record<HumanType, { hp: number; w: number; h: number; speed: number; icon: string; name: string }> = {
   P: { hp: 80, w: 12, h: 28, speed: 40, icon: '🧍', name: 'Прохожий' },
@@ -120,33 +121,9 @@ export function rand(w: World): number { let x = w.rng | 0; x ^= x << 13; x ^= x
 const ri = (w: World, n: number) => Math.floor(rand(w) * n);
 
 // ---------- карта ----------
-export function parseMap(def: MapDef): Level {
-  const rows = def.grid.length, cols = def.grid[0].length;
-  const solid = new Uint8Array(rows * cols);
-  const l: Level = { cols, rows, solid, spawns: [], humans: [], perches: [], items: [], exits: [], water: [], cat: null };
-  const pick = (arr: string[]) => arr[0];
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-    const ch = def.grid[r][c], x = c * TILE, y = r * TILE;
-    switch (ch) {
-      case '#': solid[r * cols + c] = 1; break;
-      case 'S': l.spawns.push({ x, y }); break;
-      case 'P': case 'D': case 'K': case 'Z': l.humans.push({ type: ch, x, y }); break;
-      case 'b': l.perches.push({ x: x + 8, y: y + 8 }); break;
-      case 'f': l.items.push({ kind: pick(['bread', 'bone', 'gum', 'donut']), x, y }); break;
-      case 'm': l.items.push({ kind: pick(['butt', 'ketchup', 'mask', 'battery']), x, y }); break;
-      case 'o': l.items.push({ kind: 'heart', x, y }); break;
-      case '1': case '2': case '3': l.exits.push({ type: ch, x, y, open: ch !== '2', name: EXIT_INFO[ch].name }); break;
-      case '~': l.water.push({ x, y }); break;
-      case 'c': l.cat = { x, y }; break;
-    }
-  }
-  if (!l.spawns.length) l.spawns.push({ x: 2 * TILE, y: (rows - 3) * TILE });
-  return l;
-}
-
 export function createWorld(map: string, seed: number): World {
   const def = MAPS[map] ?? MAPS[Object.keys(MAPS)[0]];
-  const level = parseMap(def);
+  const level = generateLevel(def.id, seed);
   const w: World = { map: def.id, level, tick: 0, rng: (seed | 0) || 1, rats: new Map(), humans: [], pigeons: [], items: [], cat: null, panic: 0, stage: 0, nextId: 1, events: [], over: false };
   for (const h of level.humans) w.humans.push(makeHuman(w, h.type, h.x, h.y));
   // предметы: случайный вид в пределах типа
@@ -161,7 +138,7 @@ export function createWorld(map: string, seed: number): World {
 
 function makeHuman(w: World, type: HumanType, x: number, y: number): Human {
   const d = HUMAN[type];
-  return { id: w.nextId++, type, x: x + (16 - d.w) / 2, y: y + 16 - d.h, w: d.w, h: d.h, vx: 0, vy: 0, grounded: false, facing: 1, state: type === 'Z' ? 'sleep' : 'walk', hp: d.hp, timer: 0, cd: 0, target: null, dropped: false, biters: [], stun: 0, wind: null, after: 'walk' };
+  return { id: w.nextId++, type, x: x + (16 - d.w) / 2, y: y + 16 - d.h, w: d.w, h: d.h, vx: 0, vy: 0, grounded: false, facing: 1, state: type === 'Z' ? 'sleep' : 'walk', hp: d.hp, timer: 0, cd: 0, target: null, dropped: false, biters: [], stun: 0, wind: null, after: 'walk', pcd: 0 };
 }
 function spawnItem(w: World, kind: string, x: number, y: number): Item { const it = { id: w.nextId++, kind, x, y, vy: 0, grounded: false }; w.items.push(it); return it; }
 function spawnPigeon(w: World, type: PigeonType): Pigeon {
@@ -277,7 +254,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
   // --- Люди ---
   for (const h of w.humans) {
     const d = HUMAN[h.type];
-    h.cd = Math.max(0, h.cd - dt); h.timer = Math.max(0, h.timer - dt); h.stun = Math.max(0, h.stun - dt);
+    h.cd = Math.max(0, h.cd - dt); h.timer = Math.max(0, h.timer - dt); h.stun = Math.max(0, h.stun - dt); h.pcd = Math.max(0, h.pcd - dt);
     h.biters = h.biters.filter((b) => w.tick - Number(b.at) < 3 * TICK_HZ);
     const near = nearestRat(alive, h, 12 * TILE);
     if (h.stun > 0) { h.vx = 0; }
@@ -308,7 +285,7 @@ export function stepWorld(w: World, inputs: Map<string, Input>): void {
         if (h.type === 'D') { h.state = 'chase'; h.timer = 6; if (!h.dropped) { h.dropped = true; dropFrom(w, h, ['sock']); } }
         else {
           h.state = 'panic'; h.timer = h.type === 'K' ? 4 : 3;
-          w.panic += h.type === 'K' ? RULES.panicKid : RULES.panicHuman;
+          if (h.pcd === 0) { w.panic += h.type === 'K' ? RULES.panicKid : RULES.panicHuman; h.pcd = 15; }
           ev(w, h.type === 'K' ? 'scream' : 'panic', h.x, h.y);
           if (!h.dropped) { h.dropped = true; dropFrom(w, h, h.type === 'K' ? ['donut', 'kidsnot'] : ['bread', 'snot']); }
         }
